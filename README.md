@@ -8,22 +8,19 @@
 
 ## 現在の状態
 
-設計書のPhase 1（編集基盤）を実装中。実装済みと未実装は
+設計書のPhase 1〜5をすべて実装済み。各Phaseの内訳と既知の制限は
 [docs/ROADMAP.md](docs/ROADMAP.md) を参照。
 
-| 領域 | 状態 |
-| --- | --- |
-| アーキテクチャ / 型定義 | 完了 |
-| Timeline Engine（Move / Trim / Split / Ripple Delete / Snap） | 完了 |
-| Undo / Redo（Command Pattern） | 完了 |
-| UIワークスペース（Media / Preview / Inspector / Timeline / AI） | 完了 |
-| Media Import・Preview・Timeline配置 | 完了 |
-| Project Save / Load / Autosave | 完了 |
-| Export（FFmpegフィルタグラフ生成） | 完了 |
-| AI Edit Plan（Schema検証 → ルール検証 → Command化） | 完了 |
-| AI Silence Cut | 完了（無音検出はFFmpeg silencedetect） |
-| Speech To Text / 自然言語指示 | 未実装（Phase 3） |
-| マスク / トラッキング / キーフレーム | 未実装（Phase 5） |
+| Phase | 内容 | 状態 |
+| --- | --- | --- |
+| 1 | 編集基盤（Import / Timeline / Trim / Split / Undo / Save / Export） | 完了 |
+| 2 | 色・音声（Transform / Color / Curve / Adjustment Layer / Waveform） | 完了 |
+| 3 | AI基盤（Speech To Text / Edit Plan / 自然言語指示） | 完了 |
+| 4 | AI高度化（Scene / Best Take / Highlight / B-roll / 自動補正 / 字幕） | 完了 |
+| 5 | 高度な編集（Mask / Tracking / Keyframes / Effects / Transition / Text / Multicam / GPU） | 完了 |
+
+実機（Windows + FFmpeg + 実素材）での通し確認は未実施。
+ロジックはテストで、UIはヘッドレスブラウザで検証している。
 
 ## 技術構成
 
@@ -33,7 +30,8 @@
 | デスクトップシェル | Tauri 2 |
 | 編集コア | Rust（`crates/core`） |
 | メディア処理 | FFmpeg / ffprobe（外部プロセス） |
-| AI | Provider抽象（OpenAI / ローカル / モックを差し替え可能） |
+| AI | Provider抽象（OpenAI互換API / ローカル / モックを差し替え可能） |
+| 音声認識 | whisper.cpp系ローカルエンジン、またはOpenAI互換API |
 
 対応プラットフォームはWindows 11を主対象とし、macOSへ拡張できる構成にしている。
 
@@ -79,5 +77,8 @@ cargo fmt --all -- --check
 4. AIはFFmpegコマンドを生成しない。編集パラメータのみを生成する。
 5. UIコンポーネントからFFmpegやAI APIを直接呼ばない。`src/services/` を経由する。
 6. Timeline Engineは独立モジュール。React・Zustand・Tauriに依存しない。
+7. 実装していない機能は、それらしく振る舞わせない。できないことは明示する。
+8. モデルは同梱しない。音声認識・物体検出は差し替え可能な外部実装に委ねる。
+9. APIキーはプロジェクトファイルに保存しない。端末の設定ファイルにのみ保存する。
 
 詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。

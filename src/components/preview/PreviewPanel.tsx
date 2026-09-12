@@ -4,8 +4,10 @@ import { TransportControls } from "./TransportControls";
 import { useEditorStore } from "@/store/editorStore";
 import { usePlaybackStore } from "@/store/playbackStore";
 import { previewUrl } from "@/services/mediaService";
-import { clipAt, sequenceDuration } from "@/features/timeline/engine";
+import { adjustmentLayersAt, clipAt, sequenceDuration } from "@/features/timeline/engine";
 import { colorToCssFilter } from "@/features/color/preview";
+import { CurveFilterDefs } from "./CurveFilterDefs";
+import { mergeColorStack } from "@/features/color/stack";
 
 interface PreviewPanelProps {
   className?: string;
@@ -98,14 +100,19 @@ export function PreviewPanel({ className }: PreviewPanelProps) {
     return () => cancelAnimationFrame(frame);
   }, [playing, source.kind]);
 
-  const filter = active?.clip ? colorToCssFilter(active.clip.color) : undefined;
+  // The clip's own grade, then every adjustment layer above it, in order.
+  const graded = active?.clip
+    ? mergeColorStack(active.clip.color, adjustmentLayersAt(sequence, sequence.playhead))
+    : null;
+  const filter = graded ? colorToCssFilter(graded) : undefined;
 
   return (
     <Panel
       title={source.kind === "media" ? "Source Monitor" : "Program Monitor"}
       className={className}
     >
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-black">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+        <CurveFilterDefs curves={graded?.curves} />
         {active ? (
           <video
             ref={videoRef}

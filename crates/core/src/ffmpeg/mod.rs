@@ -5,6 +5,7 @@ pub mod filters;
 pub mod probe;
 pub mod proxy;
 pub mod thumbnail;
+pub mod waveform;
 
 use crate::error::{CoreError, CoreResult};
 use std::path::PathBuf;

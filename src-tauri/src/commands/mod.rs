@@ -7,7 +7,7 @@ use crate::AppState;
 use ave_core::ai::{silence, MediaAnalysis};
 use ave_core::cache;
 use ave_core::error::CoreError;
-use ave_core::ffmpeg::{probe, proxy, thumbnail};
+use ave_core::ffmpeg::{probe, proxy, thumbnail, waveform};
 use ave_core::jobs::{BackgroundJob, JobStatus};
 use ave_core::media::{self, MediaItem};
 use ave_core::project;
@@ -117,11 +117,31 @@ pub async fn generate_proxy(media_id: String, app: tauri::AppHandle) -> CommandR
 }
 
 #[tauri::command]
-pub fn generate_waveform(media_id: String) -> CommandResult<Vec<f32>> {
-    // Waveform extraction lands with the audio phase; the cache path is already
-    // reserved so the contract does not change when it does.
-    let _ = cache::waveform_path(&media_id)?;
-    Ok(Vec::new())
+pub async fn generate_waveform(media_id: String, app: tauri::AppHandle) -> CommandResult<Vec<f32>> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    // Waveforms are expensive to extract and never change, so they are cached.
+    let cache_path = cache::waveform_path(&media_id)?;
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if let Ok(peaks) = serde_json::from_slice::<Vec<f32>>(&bytes) {
+            return Ok(peaks);
+        }
+    }
+
+    let source = PathBuf::from(&item.source_path);
+    let duration = item.duration;
+    let peaks = tauri::async_runtime::spawn_blocking(move || waveform::generate(&source, duration))
+        .await
+        .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    let _ = std::fs::write(&cache_path, serde_json::to_vec(&peaks)?);
+    Ok(peaks)
 }
 
 #[tauri::command]

@@ -45,6 +45,10 @@ pub struct Clip {
 }
 
 impl Clip {
+    pub fn is_adjustment(&self) -> bool {
+        self.kind == "adjustment"
+    }
+
     /// Timeline duration: the source range compressed by the speed factor.
     pub fn duration(&self) -> f64 {
         let source = (self.source_out - self.source_in).max(0.0);
@@ -110,6 +114,42 @@ impl Sequence {
         self.audio_tracks
             .iter()
             .filter(|track| if has_solo { track.solo } else { !track.muted })
+            .collect()
+    }
+
+    /// Adjustment layers on visible tracks, ordered bottom track first so they
+    /// apply in compositing order (design doc section 16).
+    pub fn adjustment_layers(&self) -> Vec<&Clip> {
+        let order: std::collections::HashMap<&str, usize> = self
+            .video_tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| (track.id.as_str(), index))
+            .collect();
+
+        let mut layers: Vec<&Clip> = self
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.is_adjustment()
+                    && self
+                        .video_tracks
+                        .iter()
+                        .any(|track| track.id == clip.track_id && !track.hidden)
+            })
+            .collect();
+
+        layers.sort_by_key(|clip| order.get(clip.track_id.as_str()).copied().unwrap_or(0));
+        layers
+    }
+
+    /// Video tracks that carry ordinary media, bottom to top. Adjustment layers
+    /// are applied on top of the composite rather than being composited.
+    pub fn media_video_track_ids(&self) -> Vec<&str> {
+        self.video_tracks
+            .iter()
+            .filter(|track| !track.hidden)
+            .map(|track| track.id.as_str())
             .collect()
     }
 

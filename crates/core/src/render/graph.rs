@@ -97,19 +97,29 @@ pub fn build(
     // Composite video: overlay each segment at its timeline position.
     let mut current = video_layers[0].clone();
     for (index, layer) in video_layers.iter().enumerate().skip(1) {
-        let output = if index == video_layers.len() - 1 {
-            "[vout]".to_string()
-        } else {
-            format!("[vtmp{index}]")
-        };
+        let output = format!("[vtmp{index}]");
         filters_parts.push(format!(
             "{current}{layer}overlay=x=0:y=0:eof_action=pass{output}"
         ));
         current = output;
     }
     if video_layers.len() == 1 {
-        filters_parts.push(format!("{current}null[vout]"));
+        filters_parts.push(format!("{current}null[vbase]"));
+        current = "[vbase]".to_string();
     }
+
+    // Adjustment layers grade the composite beneath them, limited to their own
+    // time range via the filters' `enable` expression (design doc section 16).
+    for (index, layer) in sequence.adjustment_layers().iter().enumerate() {
+        let Some(stages) = adjustment_stages(layer) else {
+            continue;
+        };
+        let output = format!("[vadj{index}]");
+        filters_parts.push(format!("{current}{stages}{output}"));
+        current = output;
+    }
+
+    filters_parts.push(format!("{current}null[vout]"));
 
     // Mix audio.
     if audio_layers.len() == 1 {
@@ -150,6 +160,25 @@ pub fn build(
         args,
         filter_complex,
     })
+}
+
+/// Colour stages for an adjustment layer, gated to the layer's time range.
+///
+/// Returns None when the layer changes nothing, so an inert layer costs nothing
+/// at render time.
+fn adjustment_stages(layer: &Clip) -> Option<String> {
+    let color = filters::color_filter(&layer.color)?;
+    let start = layer.start_time;
+    let end = layer.end_time();
+
+    // `enable` is evaluated per frame, so the grade applies only underneath the
+    // layer rather than to the whole timeline.
+    let gated: Vec<String> = color
+        .split(',')
+        .map(|stage| format!("{stage}:enable='between(t,{start:.4},{end:.4})'"))
+        .collect();
+
+    Some(gated.join(","))
 }
 
 /// trim -> speed -> colour -> scale -> position on the timeline.
@@ -343,6 +372,68 @@ mod tests {
         let sequence = sequence_with(vec![clip("v1", 0.0)]);
         let result = build(&sequence, &settings(), &HashMap::new());
         assert!(result.is_err());
+    }
+
+    fn adjustment(track: &str, start: f64, end: f64, exposure: f64) -> Clip {
+        let mut clip = clip(track, start);
+        clip.id = "adj1".into();
+        clip.media_id = None;
+        clip.kind = "adjustment".into();
+        clip.source_in = 0.0;
+        clip.source_out = end - start;
+        clip.audio = None;
+        clip.color = ColorSettings {
+            exposure,
+            ..Default::default()
+        };
+        clip
+    }
+
+    #[test]
+    fn an_adjustment_layer_grades_the_composite_beneath_it() {
+        let sequence = sequence_with(vec![clip("v1", 0.0), adjustment("v1", 0.0, 2.0, 40.0)]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+
+        // The grade is applied after compositing, gated to the layer's range.
+        assert!(
+            plan.filter_complex.contains("[vadj0]"),
+            "{}",
+            plan.filter_complex
+        );
+        assert!(
+            plan.filter_complex
+                .contains("enable='between(t,0.0000,2.0000)'"),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn an_adjustment_layer_is_not_given_its_own_input() {
+        let sequence = sequence_with(vec![clip("v1", 0.0), adjustment("v1", 0.0, 2.0, 40.0)]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        // Two lavfi inputs plus exactly one media input.
+        assert_eq!(plan.args.iter().filter(|arg| *arg == "-i").count(), 3);
+    }
+
+    #[test]
+    fn an_inert_adjustment_layer_adds_no_filter() {
+        let sequence = sequence_with(vec![clip("v1", 0.0), adjustment("v1", 0.0, 2.0, 0.0)]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        assert!(!plan.filter_complex.contains("[vadj0]"));
+    }
+
+    #[test]
+    fn the_graph_always_ends_at_vout() {
+        let sequence = sequence_with(vec![clip("v1", 0.0), adjustment("v1", 0.0, 2.0, 40.0)]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        // The video chain terminates at [vout]; the audio chain follows it.
+        assert!(
+            plan.filter_complex.contains("[vadj0]null[vout]"),
+            "{}",
+            plan.filter_complex
+        );
+        assert_eq!(plan.filter_complex.matches("[vout]").count(), 1);
     }
 
     #[test]

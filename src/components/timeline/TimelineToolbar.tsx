@@ -67,6 +67,21 @@ export function TimelineToolbar() {
         Ripple Delete
       </button>
 
+      <button
+        className="toolbar-button"
+        onClick={() => {
+          // Lands on the topmost video track, covering the next 5 seconds.
+          const track = sequence.videoTracks[sequence.videoTracks.length - 1];
+          if (!track) return;
+          dispatch(
+            commands.addAdjustmentLayerCommand(track.id, sequence.playhead, 5),
+          );
+        }}
+        title="調整レイヤーを追加（下のレイヤーに色調整を適用）"
+      >
+        Adjustment
+      </button>
+
       <div className="mx-1 h-4 w-px bg-border" />
 
       <button

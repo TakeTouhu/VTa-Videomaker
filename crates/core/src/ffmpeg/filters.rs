@@ -6,7 +6,46 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// A tone-curve control point in normalised 0..1 input/output space.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct CurvePoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Per-channel tone curves (design doc section 15.2).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CurveSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rgb: Option<Vec<CurvePoint>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub red: Option<Vec<CurvePoint>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub green: Option<Vec<CurvePoint>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blue: Option<Vec<CurvePoint>>,
+}
+
+/// A curve with every point on the diagonal has no visible effect.
+fn curve_is_linear(points: &Option<Vec<CurvePoint>>) -> bool {
+    match points {
+        None => true,
+        Some(points) if points.is_empty() => true,
+        Some(points) => points.iter().all(|p| (p.x - p.y).abs() < 1e-6),
+    }
+}
+
+impl CurveSettings {
+    pub fn is_empty(&self) -> bool {
+        curve_is_linear(&self.rgb)
+            && curve_is_linear(&self.red)
+            && curve_is_linear(&self.green)
+            && curve_is_linear(&self.blue)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColorSettings {
     pub exposure: f64,
@@ -18,6 +57,8 @@ pub struct ColorSettings {
     pub temperature: f64,
     pub tint: f64,
     pub saturation: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curves: Option<CurveSettings>,
 }
 
 impl Default for ColorSettings {
@@ -32,6 +73,7 @@ impl Default for ColorSettings {
             temperature: 0.0,
             tint: 0.0,
             saturation: 100.0,
+            curves: None,
         }
     }
 }
@@ -48,6 +90,11 @@ impl ColorSettings {
             && (self.temperature - default.temperature).abs() < f64::EPSILON
             && (self.tint - default.tint).abs() < f64::EPSILON
             && (self.saturation - default.saturation).abs() < f64::EPSILON
+            && self
+                .curves
+                .as_ref()
+                .map(CurveSettings::is_empty)
+                .unwrap_or(true)
     }
 }
 
@@ -73,8 +120,58 @@ pub fn color_filter(color: &ColorSettings) -> Option<String> {
     if let Some(balance) = white_balance(color) {
         filters.push(balance);
     }
+    if let Some(curves) = curves_filter(color.curves.as_ref()) {
+        filters.push(curves);
+    }
 
     Some(filters.join(","))
+}
+
+/// Serialises user tone curves into FFmpeg's `curves` filter syntax.
+///
+/// FFmpeg expects `channel='x0/y0 x1/y1 ...'` with points in increasing input
+/// order, so points are sorted and clamped first.
+pub fn curves_filter(curves: Option<&CurveSettings>) -> Option<String> {
+    let curves = curves?;
+    if curves.is_empty() {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for (name, points) in [
+        ("all", &curves.rgb),
+        ("r", &curves.red),
+        ("g", &curves.green),
+        ("b", &curves.blue),
+    ] {
+        if curve_is_linear(points) {
+            continue;
+        }
+        let Some(points) = points else { continue };
+        parts.push(format!("{name}='{}'", format_points(points)));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("curves={}", parts.join(":")))
+}
+
+fn format_points(points: &[CurvePoint]) -> String {
+    let mut sorted: Vec<CurvePoint> = points
+        .iter()
+        .map(|p| CurvePoint {
+            x: clamp(p.x, 0.0, 1.0),
+            y: clamp(p.y, 0.0, 1.0),
+        })
+        .collect();
+    sorted.sort_by(|a, b| a.x.total_cmp(&b.x));
+
+    sorted
+        .iter()
+        .map(|p| format!("{:.4}/{:.4}", p.x, p.y))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Maps shadow / highlight lift into a curves control point pair.
@@ -205,6 +302,79 @@ mod tests {
     fn fade_out_is_placed_at_the_end() {
         let filter = audio_filter(0.0, 0.0, 1.0, 10.0);
         assert!(filter.contains("afade=t=out:st=9.000"), "{filter}");
+    }
+
+    fn points(pairs: &[(f64, f64)]) -> Vec<CurvePoint> {
+        pairs
+            .iter()
+            .map(|(x, y)| CurvePoint { x: *x, y: *y })
+            .collect()
+    }
+
+    #[test]
+    fn a_linear_curve_produces_no_filter() {
+        let curves = CurveSettings {
+            rgb: Some(points(&[(0.0, 0.0), (1.0, 1.0)])),
+            ..Default::default()
+        };
+        assert!(curves_filter(Some(&curves)).is_none());
+    }
+
+    #[test]
+    fn an_s_curve_is_serialised_for_ffmpeg() {
+        let curves = CurveSettings {
+            rgb: Some(points(&[
+                (0.0, 0.0),
+                (0.25, 0.15),
+                (0.75, 0.85),
+                (1.0, 1.0),
+            ])),
+            ..Default::default()
+        };
+        let filter = curves_filter(Some(&curves)).unwrap();
+        assert_eq!(
+            filter,
+            "curves=all='0.0000/0.0000 0.2500/0.1500 0.7500/0.8500 1.0000/1.0000'"
+        );
+    }
+
+    #[test]
+    fn per_channel_curves_are_combined() {
+        let curves = CurveSettings {
+            red: Some(points(&[(0.0, 0.1), (1.0, 1.0)])),
+            blue: Some(points(&[(0.0, 0.0), (1.0, 0.9)])),
+            ..Default::default()
+        };
+        let filter = curves_filter(Some(&curves)).unwrap();
+        assert!(filter.contains("r='"), "{filter}");
+        assert!(filter.contains("b='"), "{filter}");
+        assert!(!filter.contains("g='"), "{filter}");
+    }
+
+    #[test]
+    fn curve_points_are_sorted_and_clamped() {
+        let curves = CurveSettings {
+            rgb: Some(points(&[(1.5, 2.0), (0.5, 0.2), (-1.0, 0.0)])),
+            ..Default::default()
+        };
+        let filter = curves_filter(Some(&curves)).unwrap();
+        assert_eq!(
+            filter,
+            "curves=all='0.0000/0.0000 0.5000/0.2000 1.0000/1.0000'"
+        );
+    }
+
+    #[test]
+    fn a_clip_with_only_a_curve_is_not_default() {
+        let color = ColorSettings {
+            curves: Some(CurveSettings {
+                rgb: Some(points(&[(0.0, 0.0), (0.5, 0.7), (1.0, 1.0)])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(!color.is_default());
+        assert!(color_filter(&color).unwrap().contains("curves=all="));
     }
 
     #[test]

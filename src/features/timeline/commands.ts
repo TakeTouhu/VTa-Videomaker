@@ -20,6 +20,21 @@ function mapSequence(
   return replaceSequence(project, transform(activeSequence(project)));
 }
 
+export function addAdjustmentLayerCommand(
+  trackId: string,
+  startTime: number,
+  duration: number,
+): EditorCommand {
+  return snapshotCommand({ label: "Add Adjustment Layer" }, (project) =>
+    mapSequence(project, (sequence) =>
+      engine.insertClip(
+        sequence,
+        engine.createAdjustmentLayer(trackId, startTime, duration),
+      ),
+    ),
+  );
+}
+
 export function addClipCommand(clip: Clip): EditorCommand {
   return snapshotCommand({ label: "Add Clip" }, (project) =>
     mapSequence(project, (sequence) => engine.insertClip(sequence, clip)),

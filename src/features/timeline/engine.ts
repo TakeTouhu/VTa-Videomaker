@@ -5,7 +5,7 @@
  * code backs manual editing, AI edit plans, and the renderer's clip layout.
  */
 
-import type { Clip, Sequence, Track } from "@/types/timeline";
+import type { Clip, Sequence, Track, VideoTrack } from "@/types/timeline";
 import { DEFAULT_AUDIO, DEFAULT_TRANSFORM } from "@/types/timeline";
 import { DEFAULT_COLOR } from "@/types/color";
 import { TIME_EPSILON, clamp, snapToFrame } from "@/utils/time";
@@ -171,6 +171,45 @@ export function createClip(input: CreateClipInput): Clip {
     audio: input.withAudio === false ? undefined : { ...DEFAULT_AUDIO },
     label: input.label,
   };
+}
+
+/**
+ * Builds an adjustment layer: a clip with no source media whose colour and
+ * effects apply to every visible layer beneath it (design doc section 16).
+ */
+export function createAdjustmentLayer(
+  trackId: string,
+  startTime: number,
+  duration: number,
+  id?: string,
+): Clip {
+  return {
+    ...createClip({
+      mediaId: null,
+      trackId,
+      startTime,
+      sourceIn: 0,
+      sourceOut: Math.max(MIN_CLIP_DURATION, duration),
+      kind: "adjustment",
+      withAudio: false,
+      label: "Adjustment Layer",
+      id,
+    }),
+  };
+}
+
+/** Adjustment layers covering `time`, ordered bottom track first. */
+export function adjustmentLayersAt(sequence: Sequence, time: number): Clip[] {
+  const order = new Map(sequence.videoTracks.map((track, index) => [track.id, index]));
+  return sequence.clips
+    .filter(
+      (clip) =>
+        clip.kind === "adjustment" &&
+        time >= clip.startTime - TIME_EPSILON &&
+        time < clipEnd(clip) - TIME_EPSILON &&
+        !(findTrack(sequence, clip.trackId) as VideoTrack | undefined)?.hidden,
+    )
+    .sort((a, b) => (order.get(a.trackId) ?? 0) - (order.get(b.trackId) ?? 0));
 }
 
 /* ------------------------------------------------------------------ */

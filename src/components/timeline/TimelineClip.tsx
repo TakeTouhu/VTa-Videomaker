@@ -10,6 +10,7 @@ import {
 } from "@/features/timeline/engine";
 import { snapThresholdSeconds, timeToX, xToTime } from "./geometry";
 import { formatDuration } from "@/utils/time";
+import { ClipWaveform } from "./ClipWaveform";
 
 interface TimelineClipProps {
   clip: Clip;
@@ -178,6 +179,15 @@ export function TimelineClip({ clip, track, sequence, zoom }: TimelineClipProps)
       onPointerDown={onBodyPointerDown}
       title={`${clip.label ?? media?.name ?? "Clip"} (${formatDuration(duration)})`}
     >
+      {isAudioTrack && media ? (
+        <ClipWaveform
+          clip={clip}
+          mediaDuration={media.duration}
+          width={Math.max(timeToX(previewDuration, zoom), 4)}
+          height={track.height - 6}
+        />
+      ) : null}
+
       <div
         className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/0 hover:bg-accent/70"
         onPointerDown={(event) => beginDrag(event, "trim-start")}

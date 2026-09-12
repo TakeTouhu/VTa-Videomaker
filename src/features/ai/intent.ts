@@ -9,6 +9,11 @@ export type Intent =
   | { kind: "silence" }
   | { kind: "filler" }
   | { kind: "condense"; targetSeconds: number }
+  | { kind: "bestTake" }
+  | { kind: "highlight"; targetSeconds: number }
+  | { kind: "colorCorrect" }
+  | { kind: "audioCorrect" }
+  | { kind: "caption" }
   | { kind: "unknown" };
 
 const SILENCE = /無音|silence|間を?(詰め|削除)|話していないところ/i;
@@ -35,6 +40,14 @@ const DURATION_PATTERNS: { pattern: RegExp; toSeconds: (match: RegExpMatchArray)
 ];
 
 const CONDENSE = /まとめ|短く|縮め|凝縮|要約|以内に|カットして.*分|condense|shorten/i;
+const BEST_TAKE = /ベストテイク|良いテイク|よいテイク|一番良い|best take|失敗して(いる|る)?部分/i;
+const HIGHLIGHT = /ハイライト|見どころ|highlight|盛り上が/i;
+const COLOR_CORRECT = /色.*(自動|補正|調整|直し)|自動.*色|カラcoレクション|color correct|明るさ.*自動/i;
+const AUDIO_CORRECT = /音量.*(揃え|自動|補正|均一|ノーマライズ)|normalize|ラウドネス/i;
+const CAPTION = /字幕|キャプション|テロップ|caption|subtitle/i;
+
+/** Default highlight length when the request does not give one. */
+export const DEFAULT_HIGHLIGHT_SECONDS = 60;
 
 /** Extracts a target duration in seconds, or null when none is stated. */
 export function parseTargetDuration(text: string): number | null {
@@ -51,9 +64,20 @@ export function parseTargetDuration(text: string): number | null {
 export function matchIntent(prompt: string): Intent {
   const text = prompt.trim();
 
-  // Order matters: "無音を削除して3分にまとめて" is primarily a condense
-  // request, and the condense planner removes silence on the way there.
   const target = parseTargetDuration(text);
+
+  // Most specific first: a highlight request with a length is a highlight, not
+  // a generic condense.
+  if (HIGHLIGHT.test(text)) {
+    return { kind: "highlight", targetSeconds: target ?? DEFAULT_HIGHLIGHT_SECONDS };
+  }
+  if (CAPTION.test(text)) return { kind: "caption" };
+  if (AUDIO_CORRECT.test(text)) return { kind: "audioCorrect" };
+  if (COLOR_CORRECT.test(text)) return { kind: "colorCorrect" };
+  if (BEST_TAKE.test(text)) return { kind: "bestTake" };
+
+  // "無音を削除して3分にまとめて" is primarily a condense request, and the
+  // condense planner removes silence on the way there.
   if (target !== null && CONDENSE.test(text)) {
     return { kind: "condense", targetSeconds: target };
   }

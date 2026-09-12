@@ -82,6 +82,41 @@ pub struct AudioTrack {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CaptionCue {
+    pub id: String,
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionStyle {
+    pub font_family: String,
+    pub font_size: u32,
+    pub color: String,
+    pub background_color: String,
+    pub outline_color: String,
+    pub outline_width: u32,
+    /// 0..1 from the top of the frame.
+    pub position_y: f64,
+    pub alignment: String,
+    #[serde(default)]
+    pub bold: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionTrack {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub style: CaptionStyle,
+    pub cues: Vec<CaptionCue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Sequence {
     pub id: String,
     pub name: String,
@@ -91,6 +126,8 @@ pub struct Sequence {
     pub video_tracks: Vec<VideoTrack>,
     pub audio_tracks: Vec<AudioTrack>,
     pub clips: Vec<Clip>,
+    #[serde(default)]
+    pub caption_tracks: Vec<CaptionTrack>,
     #[serde(default)]
     pub playhead: f64,
 }
@@ -215,6 +252,7 @@ mod tests {
                 clip("a", 0.0, 0.0, 5.0, 1.0),
                 clip("b", 10.0, 0.0, 2.0, 1.0),
             ],
+            caption_tracks: vec![],
             playhead: 0.0,
         };
         assert_eq!(sequence.duration(), 12.0);
@@ -246,6 +284,7 @@ mod tests {
                 },
             ],
             clips: vec![],
+            caption_tracks: vec![],
             playhead: 0.0,
         };
         let audible = sequence.audible_audio_tracks();

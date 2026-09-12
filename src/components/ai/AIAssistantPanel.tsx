@@ -7,6 +7,7 @@ import { useAIStore } from "@/store/aiStore";
 import type { AIEditMode } from "@/store/aiStore";
 import { analyzeSequenceMedia, requestEdit } from "@/services/aiService";
 import { TranscriptPanel } from "./TranscriptPanel";
+import { CaptionEditor } from "./CaptionEditor";
 import { useSettingsStore } from "@/store/settingsStore";
 
 interface AIAssistantPanelProps {
@@ -18,6 +19,11 @@ const SUGGESTIONS = [
   "無音部分を全部削除して",
   "言い直しを削除して",
   "3分以内にまとめて",
+  "一番良いテイクだけ残して",
+  "ハイライトを60秒でまとめて",
+  "色を自動補正して",
+  "音量を揃えて",
+  "字幕を作って",
 ];
 
 const MODES: { id: AIEditMode; label: string; hint: string }[] = [
@@ -41,7 +47,7 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
   const addMessage = useAIStore((state) => state.addMessage);
   const pendingPlan = useAIStore((state) => state.pendingPlan);
   const [input, setInput] = useState("");
-  const [tab, setTab] = useState<"chat" | "transcript">("chat");
+  const [tab, setTab] = useState<"chat" | "transcript" | "captions">("chat");
   const provider = useSettingsStore((state) => state.settings.aiProvider);
 
   const send = (text: string = input) => {
@@ -72,7 +78,7 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
       }
     >
       <div className="flex shrink-0 border-b border-border">
-        {(["chat", "transcript"] as const).map((entry) => (
+        {(["chat", "transcript", "captions"] as const).map((entry) => (
           <button
             key={entry}
             className={clsx(
@@ -83,13 +89,15 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
             )}
             onClick={() => setTab(entry)}
           >
-            {entry === "chat" ? "Chat" : "Transcript"}
+            {entry === "chat" ? "Chat" : entry === "transcript" ? "文字起こし" : "字幕"}
           </button>
         ))}
       </div>
 
       {tab === "transcript" ? (
         <TranscriptPanel />
+      ) : tab === "captions" ? (
+        <CaptionEditor />
       ) : (
       <>
       <div className="min-h-0 flex-1 space-y-2 overflow-auto p-2">

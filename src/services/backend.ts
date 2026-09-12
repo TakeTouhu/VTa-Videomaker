@@ -32,6 +32,11 @@ export interface AnalyzeOptions {
   /** Silence threshold in dB and minimum duration in seconds. */
   silenceNoiseDb?: number;
   silenceMinSeconds?: number;
+  /** Measure picture and loudness statistics for AI correction. */
+  statistics?: boolean;
+  /** Run the configured object detector over sampled frames. */
+  detect?: boolean;
+  detectInterval?: number;
 }
 
 export interface Backend {

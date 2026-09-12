@@ -1,5 +1,6 @@
 //! Render engine: turns a sequence into an FFmpeg filter graph and runs it.
 
+pub mod captions;
 pub mod graph;
 pub mod progress;
 

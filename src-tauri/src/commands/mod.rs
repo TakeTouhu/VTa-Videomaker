@@ -4,7 +4,9 @@
 //! translate errors. No FFmpeg command line is built here.
 
 use crate::AppState;
-use ave_core::ai::{scene, silence, transcribe, MediaAnalysis, TranscriptSegment};
+use ave_core::ai::{
+    scene, silence, stats, transcribe, vision, Loudness, MediaAnalysis, TranscriptSegment,
+};
 use ave_core::cache;
 use ave_core::error::CoreError;
 use ave_core::ffmpeg::{audio, probe, proxy, thumbnail, waveform};
@@ -221,6 +223,15 @@ pub struct AnalyzeOptions {
     pub silence_noise_db: Option<f64>,
     #[serde(default)]
     pub silence_min_seconds: Option<f64>,
+    /// Measure picture and loudness statistics for AI correction.
+    #[serde(default)]
+    pub statistics: bool,
+    /// Run the configured object detector over sampled frames.
+    #[serde(default)]
+    pub detect: bool,
+    /// Seconds between sampled frames when detecting.
+    #[serde(default)]
+    pub detect_interval: Option<f64>,
 }
 
 #[tauri::command]
@@ -247,18 +258,49 @@ pub async fn analyze_media(
         .unwrap_or(silence::DEFAULT_MIN_DURATION);
     let want_scenes = options.scenes;
 
+    let want_statistics = options.statistics;
+    let want_detect = options.detect;
+    let detect_interval = options.detect_interval.unwrap_or(2.0).max(0.2);
+    let detector = settings::load().detector_binary;
+    let media_key = media_id.clone();
+
     let analysis_source = source.clone();
-    let (silences, scenes) = tauri::async_runtime::spawn_blocking(move || {
+    let measured = tauri::async_runtime::spawn_blocking(move || {
         let silences = silence::detect(&analysis_source, noise, min)?;
+
         let scenes = if want_scenes {
             scene::detect(&analysis_source, scene::DEFAULT_THRESHOLD)?
         } else {
             Vec::new()
         };
-        Ok::<_, CoreError>((silences, scenes))
+
+        // Statistics drive AI colour and audio correction. A failure here is
+        // not fatal: the rest of the analysis is still useful.
+        let (frame_stats, loudness) = if want_statistics {
+            let picture = stats::measure_video(&analysis_source, 0.5).ok();
+            let audio_levels = audio::measure_loudness(&analysis_source).ok().map(
+                |(integrated_lufs, true_peak_db)| Loudness {
+                    integrated_lufs,
+                    true_peak_db,
+                },
+            );
+            (picture, audio_levels)
+        } else {
+            (None, None)
+        };
+
+        let detections = if want_detect && !detector.trim().is_empty() {
+            detect_frames(&analysis_source, &media_key, &detector, detect_interval)?
+        } else {
+            Vec::new()
+        };
+
+        Ok::<_, CoreError>((silences, scenes, frame_stats, loudness, detections))
     })
     .await
     .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    let (silences, scenes, frame_stats, loudness, detections) = measured;
 
     // A transcript produced earlier (locally or by a hosted provider) is cached
     // on disk, so re-analysing does not throw it away.
@@ -269,8 +311,35 @@ pub async fn analyze_media(
         transcript,
         silences,
         scenes,
+        detections,
+        descriptions: Vec::new(),
+        frame_stats,
+        loudness,
         analyzed_at: now(),
     })
+}
+
+/// Samples frames and runs the configured detector over each of them.
+fn detect_frames(
+    source: &Path,
+    media_id: &str,
+    detector: &str,
+    interval: f64,
+) -> Result<Vec<vision::FrameDetections>, CoreError> {
+    let directory = cache::subdirectory("frames")?.join(media_id);
+    let keyframes = vision::extract_keyframes(source, &directory, interval, 640)?;
+
+    let mut frames = Vec::with_capacity(keyframes.len());
+    for keyframe in keyframes {
+        // One bad frame must not lose the whole pass.
+        let detections =
+            vision::detect_in_frame(detector, Path::new(&keyframe.path)).unwrap_or_default();
+        frames.push(vision::FrameDetections {
+            time: keyframe.time,
+            detections,
+        });
+    }
+    Ok(frames)
 }
 
 fn read_cached_transcript(media_id: &str) -> Vec<TranscriptSegment> {

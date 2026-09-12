@@ -6,6 +6,7 @@
 
 use crate::error::{CoreError, CoreResult};
 use crate::ffmpeg::filters;
+use crate::render::captions;
 use crate::render::ExportSettings;
 use crate::timeline::{Clip, Sequence};
 use std::collections::HashMap;
@@ -115,6 +116,16 @@ pub fn build(
             continue;
         };
         let output = format!("[vadj{index}]");
+        filters_parts.push(format!("{current}{stages}{output}"));
+        current = output;
+    }
+
+    // Captions are drawn last, over everything (design doc section 58).
+    for (index, track) in sequence.caption_tracks.iter().enumerate() {
+        let Some(stages) = captions::caption_filters(track, settings.height) else {
+            continue;
+        };
+        let output = format!("[vcap{index}]");
         filters_parts.push(format!("{current}{stages}{output}"));
         current = output;
     }
@@ -292,6 +303,7 @@ mod tests {
                 solo: false,
             }],
             clips,
+            caption_tracks: vec![],
             playhead: 0.0,
         }
     }

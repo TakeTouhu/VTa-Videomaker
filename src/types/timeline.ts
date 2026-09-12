@@ -81,6 +81,48 @@ export interface Clip {
   label?: string;
 }
 
+/** One subtitle, in sequence time (design doc sections 57, 58). */
+export interface CaptionCue {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface CaptionStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  /** Empty string means no box behind the text. */
+  backgroundColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  /** 0..1 from the top of the frame. */
+  positionY: number;
+  alignment: "left" | "center" | "right";
+  bold: boolean;
+}
+
+export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+  fontFamily: "Noto Sans JP",
+  fontSize: 42,
+  color: "#FFFFFF",
+  backgroundColor: "#000000A0",
+  outlineColor: "#000000",
+  outlineWidth: 2,
+  positionY: 0.86,
+  alignment: "center",
+  bold: true,
+};
+
+export interface CaptionTrack {
+  id: string;
+  name: string;
+  enabled: boolean;
+  style: CaptionStyle;
+  cues: CaptionCue[];
+}
+
 export interface Sequence {
   id: string;
   name: string;
@@ -90,6 +132,8 @@ export interface Sequence {
   videoTracks: VideoTrack[];
   audioTracks: AudioTrack[];
   clips: Clip[];
+  /** Subtitle tracks, rendered over the composite (section 58). */
+  captionTracks?: CaptionTrack[];
   /** Playhead position in seconds, persisted with the project. */
   playhead: number;
 }

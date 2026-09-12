@@ -106,12 +106,51 @@ export interface SilenceRange {
   end: number;
 }
 
+/** A detected object or face, in normalised 0..1 frame coordinates. */
+export interface Detection {
+  label: string;
+  confidence: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FrameDetections {
+  time: number;
+  detections: Detection[];
+}
+
+/** Natural language description of a sampled frame (design doc section 47). */
+export interface SceneDescription {
+  time: number;
+  text: string;
+  tags: string[];
+}
+
+export interface FrameStats {
+  lumaAverage: number;
+  lumaLow: number;
+  lumaHigh: number;
+  saturation: number;
+  blueBias: number;
+}
+
+export interface Loudness {
+  integratedLufs: number;
+  truePeakDb: number;
+}
+
 export interface MediaAnalysis {
   mediaId: string;
   transcript: TranscriptSegment[];
   silences: SilenceRange[];
-  /** Scene boundaries, seconds. Populated in a later phase. */
+  /** Scene boundaries, seconds. */
   scenes: number[];
+  detections?: FrameDetections[];
+  descriptions?: SceneDescription[];
+  frameStats?: FrameStats;
+  loudness?: Loudness;
   analyzedAt: string;
 }
 

@@ -5,7 +5,13 @@
  */
 
 import type { Project } from "@/types/project";
-import type { Clip, Sequence } from "@/types/timeline";
+import type {
+  CaptionCue,
+  CaptionStyle,
+  CaptionTrack,
+  Clip,
+  Sequence,
+} from "@/types/timeline";
 import type { ColorSettings } from "@/types/color";
 import type { AudioSettings, TransformSettings } from "@/types/timeline";
 import { activeSequence, replaceSequence } from "@/features/project/factory";
@@ -187,6 +193,91 @@ export function removeRangeCommand(
     mapSequence(project, (sequence) =>
       engine.removeRange(sequence, trackId, start, end, ripple),
     ),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Captions (design doc sections 57-58)                                */
+/* ------------------------------------------------------------------ */
+
+export function setCaptionTrackCommand(
+  track: CaptionTrack,
+  label = "Generate Captions",
+): EditorCommand {
+  return snapshotCommand({ label }, (project) =>
+    mapSequence(project, (sequence) => {
+      const existing = sequence.captionTracks ?? [];
+      const index = existing.findIndex((entry) => entry.id === track.id);
+      const captionTracks =
+        index === -1
+          ? [...existing, track]
+          : existing.map((entry) => (entry.id === track.id ? track : entry));
+      return { ...sequence, captionTracks };
+    }),
+  );
+}
+
+export function updateCaptionCueCommand(
+  trackId: string,
+  cueId: string,
+  patch: Partial<CaptionCue>,
+): EditorCommand {
+  return snapshotCommand(
+    { label: "Edit Caption", mergeKey: `caption:${cueId}` },
+    (project) =>
+      mapSequence(project, (sequence) => ({
+        ...sequence,
+        captionTracks: (sequence.captionTracks ?? []).map((track) =>
+          track.id !== trackId
+            ? track
+            : {
+                ...track,
+                cues: track.cues.map((cue) =>
+                  cue.id === cueId ? { ...cue, ...patch } : cue,
+                ),
+              },
+        ),
+      })),
+  );
+}
+
+export function deleteCaptionCueCommand(trackId: string, cueId: string): EditorCommand {
+  return snapshotCommand({ label: "Delete Caption" }, (project) =>
+    mapSequence(project, (sequence) => ({
+      ...sequence,
+      captionTracks: (sequence.captionTracks ?? []).map((track) =>
+        track.id !== trackId
+          ? track
+          : { ...track, cues: track.cues.filter((cue) => cue.id !== cueId) },
+      ),
+    })),
+  );
+}
+
+export function setCaptionStyleCommand(
+  trackId: string,
+  style: Partial<CaptionStyle>,
+): EditorCommand {
+  return snapshotCommand(
+    { label: "Caption Style", mergeKey: `captionStyle:${trackId}` },
+    (project) =>
+      mapSequence(project, (sequence) => ({
+        ...sequence,
+        captionTracks: (sequence.captionTracks ?? []).map((track) =>
+          track.id === trackId ? { ...track, style: { ...track.style, ...style } } : track,
+        ),
+      })),
+  );
+}
+
+export function toggleCaptionTrackCommand(trackId: string): EditorCommand {
+  return snapshotCommand({ label: "Toggle Captions" }, (project) =>
+    mapSequence(project, (sequence) => ({
+      ...sequence,
+      captionTracks: (sequence.captionTracks ?? []).map((track) =>
+        track.id === trackId ? { ...track, enabled: !track.enabled } : track,
+      ),
+    })),
   );
 }
 

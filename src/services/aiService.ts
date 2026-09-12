@@ -15,6 +15,15 @@ import { validatePlan } from "@/features/ai/validation";
 import { lowerPlan } from "@/features/ai/planToCommands";
 import { buildSilenceCutPlan } from "@/features/ai/silenceCut";
 import { buildCondensePlan, buildFillerCutPlan } from "@/features/ai/transcriptPlans";
+import {
+  buildAudioCorrectionPlan,
+  buildBestTakePlan,
+  buildColorCorrectionPlan,
+  buildHighlightPlan,
+} from "@/features/ai/highlightPlans";
+import { buildCaptions } from "@/features/ai/captions";
+import * as commands from "@/features/timeline/commands";
+import { DEFAULT_CAPTION_STYLE } from "@/types/timeline";
 import { matchIntent } from "@/features/ai/intent";
 import { getProvider } from "@/features/ai/provider";
 import { createOpenAIProvider } from "@/features/ai/providers/openai";
@@ -38,6 +47,10 @@ function sequenceMediaIds(): string[] {
 export interface AnalyzeOptions {
   /** Run speech to text as well as silence and scene detection. */
   transcribe?: boolean;
+  /** Measure picture and loudness statistics for AI correction. */
+  statistics?: boolean;
+  /** Run the configured object detector over sampled frames. */
+  detect?: boolean;
   /** Re-analyse media that already has a result. */
   force?: boolean;
 }
@@ -55,7 +68,11 @@ export async function analyzeSequenceMedia(options: AnalyzeOptions = {}): Promis
 
     try {
       editor.updateMedia(mediaId, { analysisState: "running" });
-      const analysis = await backend().analyzeMedia(mediaId, { scenes: true });
+      const analysis = await backend().analyzeMedia(mediaId, {
+        scenes: true,
+        statistics: options.statistics ?? false,
+        detect: options.detect ?? false,
+      });
 
       const withSpeech =
         options.transcribe && analysis.transcript.length === 0
@@ -112,9 +129,16 @@ export async function requestEdit(prompt: string): Promise<void> {
 
   try {
     const intent = matchIntent(prompt);
-    const needsTranscript = intent.kind === "filler" || intent.kind === "condense";
+    const needsTranscript = ["filler", "condense", "bestTake", "highlight", "caption"].includes(
+      intent.kind,
+    );
+    const needsStatistics = intent.kind === "colorCorrect" || intent.kind === "audioCorrect";
 
-    await analyzeSequenceMedia({ transcribe: needsTranscript });
+    await analyzeSequenceMedia({
+      transcribe: needsTranscript,
+      statistics: needsStatistics,
+      force: needsStatistics,
+    });
 
     const sequence = useEditorStore.getState().sequence();
     const analyses = Object.values(useAIStore.getState().analyses);
@@ -138,6 +162,28 @@ export async function requestEdit(prompt: string): Promise<void> {
     }
     if (intent.kind === "condense") {
       proposePlan(buildCondensePlan(sequence, analyses, intent.targetSeconds));
+      return;
+    }
+    if (intent.kind === "bestTake") {
+      proposePlan(buildBestTakePlan(sequence, analyses));
+      return;
+    }
+    if (intent.kind === "highlight") {
+      proposePlan(buildHighlightPlan(sequence, analyses, intent.targetSeconds));
+      return;
+    }
+    if (intent.kind === "colorCorrect") {
+      proposePlan(buildColorCorrectionPlan(sequence, analyses));
+      return;
+    }
+    if (intent.kind === "audioCorrect") {
+      proposePlan(buildAudioCorrectionPlan(sequence, analyses));
+      return;
+    }
+    if (intent.kind === "caption") {
+      // Captions are not an edit plan: they are added directly as an undoable
+      // command, because there is nothing about them to approve range by range.
+      generateCaptions();
       return;
     }
 
@@ -167,6 +213,38 @@ function errorText(error: unknown): string {
     return `${message}\n（ブラウザプレビューでは音声解析を実行できません）`;
   }
   return message;
+}
+
+/**
+ * Generates caption cues from the transcript and adds them as a caption track
+ * (design doc section 57).
+ */
+export function generateCaptions(): void {
+  const editor = useEditorStore.getState();
+  const sequence = editor.sequence();
+  const analyses = Object.values(useAIStore.getState().analyses);
+  const cues = buildCaptions(sequence, analyses);
+
+  if (cues.length === 0) {
+    useAIStore
+      .getState()
+      .addMessage("assistant", "字幕にできる発言が見つかりませんでした。");
+    return;
+  }
+
+  const existing = sequence.captionTracks?.[0];
+  editor.dispatch(
+    commands.setCaptionTrackCommand({
+      id: existing?.id ?? createId("captions"),
+      name: existing?.name ?? "字幕",
+      enabled: true,
+      style: existing?.style ?? DEFAULT_CAPTION_STYLE,
+      cues,
+    }),
+  );
+  useAIStore
+    .getState()
+    .addMessage("assistant", `${cues.length}件の字幕を生成しました。Captionsタブで編集できます。`);
 }
 
 /** Convenience entry point for the "無音を削除" shortcut button. */

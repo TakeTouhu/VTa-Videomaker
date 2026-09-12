@@ -7,6 +7,7 @@ import { previewUrl } from "@/services/mediaService";
 import { adjustmentLayersAt, clipAt, sequenceDuration } from "@/features/timeline/engine";
 import { colorToCssFilter } from "@/features/color/preview";
 import { CurveFilterDefs } from "./CurveFilterDefs";
+import { CaptionOverlay } from "./CaptionOverlay";
 import { mergeColorStack } from "@/features/color/stack";
 
 interface PreviewPanelProps {
@@ -111,8 +112,12 @@ export function PreviewPanel({ className }: PreviewPanelProps) {
       title={source.kind === "media" ? "Source Monitor" : "Program Monitor"}
       className={className}
     >
-      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center bg-black"
+        style={{ containerType: "size" }}
+      >
         <CurveFilterDefs curves={graded?.curves} />
+        <CaptionOverlay tracks={sequence.captionTracks} time={sequence.playhead} />
         {active ? (
           <video
             ref={videoRef}

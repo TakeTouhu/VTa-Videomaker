@@ -27,6 +27,151 @@ pub struct AudioSettings {
     pub muted: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MaskPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Mask geometry in normalised 0..1 frame coordinates (design doc section 17).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MaskShape {
+    #[serde(rename_all = "camelCase")]
+    Rectangle {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        #[serde(default)]
+        rotation: f64,
+        #[serde(default)]
+        corner_radius: f64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Ellipse {
+        x: f64,
+        y: f64,
+        radius_x: f64,
+        radius_y: f64,
+        #[serde(default)]
+        rotation: f64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Polygon { points: Vec<MaskPoint> },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackSample {
+    pub time: f64,
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub scale: f64,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mask {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub shape: MaskShape,
+    #[serde(default)]
+    pub feather: f64,
+    #[serde(default)]
+    pub expansion: f64,
+    #[serde(default = "one")]
+    pub opacity: f64,
+    #[serde(default)]
+    pub inverted: bool,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub track: Vec<TrackSample>,
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Effect {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub parameters: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Keyframe {
+    pub time: f64,
+    pub value: f64,
+    #[serde(default)]
+    pub interpolation: Interpolation,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Interpolation {
+    #[default]
+    Linear,
+    Hold,
+    Ease,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyframeTrack {
+    pub property: String,
+    #[serde(default)]
+    pub keyframes: Vec<Keyframe>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSettings {
+    pub content: String,
+    #[serde(default)]
+    pub font_family: String,
+    pub font_size: u32,
+    pub color: String,
+    #[serde(default)]
+    pub background_color: String,
+    #[serde(default)]
+    pub outline_color: String,
+    #[serde(default)]
+    pub outline_width: u32,
+    #[serde(default)]
+    pub bold: bool,
+    pub x: f64,
+    pub y: f64,
+    #[serde(default)]
+    pub alignment: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transition {
+    pub id: String,
+    pub track_id: String,
+    pub from_clip_id: String,
+    pub to_clip_id: String,
+    #[serde(rename = "type")]
+    pub transition_type: String,
+    pub duration: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clip {
@@ -42,11 +187,23 @@ pub struct Clip {
     pub color: ColorSettings,
     #[serde(default)]
     pub audio: Option<AudioSettings>,
+    #[serde(default)]
+    pub masks: Vec<Mask>,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
+    #[serde(default)]
+    pub keyframes: Vec<KeyframeTrack>,
+    #[serde(default)]
+    pub text: Option<TextSettings>,
 }
 
 impl Clip {
     pub fn is_adjustment(&self) -> bool {
         self.kind == "adjustment"
+    }
+
+    pub fn is_text(&self) -> bool {
+        self.kind == "text"
     }
 
     /// Timeline duration: the source range compressed by the speed factor.
@@ -128,6 +285,8 @@ pub struct Sequence {
     pub clips: Vec<Clip>,
     #[serde(default)]
     pub caption_tracks: Vec<CaptionTrack>,
+    #[serde(default)]
+    pub transitions: Vec<Transition>,
     #[serde(default)]
     pub playhead: f64,
 }
@@ -224,6 +383,10 @@ mod tests {
             },
             color: ColorSettings::default(),
             audio: None,
+            masks: vec![],
+            effects: vec![],
+            keyframes: vec![],
+            text: None,
         }
     }
 
@@ -253,6 +416,7 @@ mod tests {
                 clip("b", 10.0, 0.0, 2.0, 1.0),
             ],
             caption_tracks: vec![],
+            transitions: vec![],
             playhead: 0.0,
         };
         assert_eq!(sequence.duration(), 12.0);
@@ -285,6 +449,7 @@ mod tests {
             ],
             clips: vec![],
             caption_tracks: vec![],
+            transitions: vec![],
             playhead: 0.0,
         };
         let audible = sequence.audible_audio_tracks();

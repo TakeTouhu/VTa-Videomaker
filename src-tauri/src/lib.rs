@@ -32,6 +32,8 @@ pub fn run() {
             commands::extract_audio,
             commands::transcribe_audio,
             commands::save_transcript,
+            commands::track_mask,
+            commands::sync_multicam,
             commands::load_settings,
             commands::save_settings,
             commands::resolve_api_key,

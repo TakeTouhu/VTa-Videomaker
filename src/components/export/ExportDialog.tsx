@@ -116,6 +116,26 @@ export function ExportDialog() {
             </Row>
           ) : null}
 
+          <Row label="GPU">
+            <select
+              className="rounded border border-border bg-bg px-2 py-1 outline-none"
+              value={settings.hardwareAcceleration ?? "none"}
+              onChange={(event) =>
+                patch({
+                  hardwareAcceleration: event.target
+                    .value as ExportSettings["hardwareAcceleration"],
+                })
+              }
+            >
+              <option value="none">使用しない（ソフトウェア）</option>
+              <option value="auto">自動検出</option>
+              <option value="nvenc">NVIDIA NVENC</option>
+              <option value="qsv">Intel Quick Sync</option>
+              <option value="amf">AMD AMF</option>
+              <option value="videoToolbox">Apple VideoToolbox</option>
+            </select>
+          </Row>
+
           <Row label="Duration">
             <span className="font-mono text-text-secondary">
               {formatDuration(sequenceDuration(sequence))}

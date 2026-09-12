@@ -2,6 +2,7 @@
 
 import type { MediaItem } from "./media";
 import type { Sequence } from "./timeline";
+import type { MulticamGroup } from "./effects";
 
 /** Bumped whenever the on-disk shape changes; migrations live in features/project. */
 export const PROJECT_SCHEMA_VERSION = 1;
@@ -34,6 +35,8 @@ export interface Project {
   media: MediaItem[];
   sequences: Sequence[];
   activeSequenceId: string;
+  /** Synchronised camera angle groups (section 58). */
+  multicamGroups?: MulticamGroup[];
   createdAt: string;
   updatedAt: string;
 }

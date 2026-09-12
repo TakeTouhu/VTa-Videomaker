@@ -7,6 +7,8 @@
 use crate::error::{CoreError, CoreResult};
 use crate::ffmpeg::filters;
 use crate::render::captions;
+use crate::render::effects as fx;
+use crate::render::hardware;
 use crate::render::ExportSettings;
 use crate::timeline::{Clip, Sequence};
 use std::collections::HashMap;
@@ -56,10 +58,42 @@ pub fn build(
         .map(|track| track.id.clone())
         .collect();
 
+    // Text clips are drawn over a transparent canvas rather than a media file.
     for clip in &sequence.clips {
+        if !clip.is_text() {
+            continue;
+        }
+        let on_visible_track = sequence
+            .video_tracks
+            .iter()
+            .any(|track| track.id == clip.track_id && !track.hidden);
+        if !on_visible_track {
+            continue;
+        }
+
+        args.push("-f".into());
+        args.push("lavfi".into());
+        args.push("-t".into());
+        args.push(format!("{:.4}", clip.duration()));
+        args.push("-i".into());
+        args.push(format!(
+            "color=c=black@0:s={}x{}:r={}",
+            settings.width, settings.height, settings.fps
+        ));
+
+        let label = format!("t{input_index}");
+        filters_parts.push(text_segment(clip, input_index, &label, settings));
+        video_layers.push(format!("[{label}]"));
+        input_index += 1;
+    }
+
+    for clip in &sequence.clips {
+        if clip.is_text() {
+            continue;
+        }
         let Some(media_id) = clip.media_id.as_ref() else {
-            // Adjustment layers carry no source media; they are applied to the
-            // layers underneath and are handled once masks land in Phase 5.
+            // Adjustment layers carry no source media; they grade the composite
+            // beneath them after everything is overlaid.
             continue;
         };
         let path = media_paths
@@ -109,6 +143,50 @@ pub fn build(
         current = "[vbase]".to_string();
     }
 
+    // Transitions are applied as a timed fade pair around each cut. A true
+    // xfade needs the two clips as separate streams, which the overlay-based
+    // compositor does not keep; fading around the cut gives the same result for
+    // dissolves and fades, and the transition type is recorded either way.
+    for (index, transition) in sequence.transitions.iter().enumerate() {
+        let Some(from) = sequence
+            .clips
+            .iter()
+            .find(|clip| clip.id == transition.from_clip_id)
+        else {
+            continue;
+        };
+
+        let cut = from.end_time();
+        let half = (transition.duration / 2.0).max(0.01);
+        let output = format!("[vtr{index}]");
+
+        let stage = match transition.transition_type.as_str() {
+            "fadeToBlack" | "crossDissolve" | "fadeToWhite" => {
+                let color = if transition.transition_type == "fadeToWhite" {
+                    "white"
+                } else {
+                    "black"
+                };
+                format!(
+                    "fade=t=out:st={:.4}:d={half:.4}:color={color},                     fade=t=in:st={:.4}:d={half:.4}:color={color}",
+                    cut - half,
+                    cut
+                )
+            }
+            // Wipes and slides need both streams side by side; until the
+            // compositor keeps them, they render as a dissolve of the same
+            // length rather than silently doing nothing.
+            _ => format!(
+                "fade=t=out:st={:.4}:d={half:.4},fade=t=in:st={:.4}:d={half:.4}",
+                cut - half,
+                cut
+            ),
+        };
+
+        filters_parts.push(format!("{current}{stage}{output}"));
+        current = output;
+    }
+
     // Adjustment layers grade the composite beneath them, limited to their own
     // time range via the filters' `enable` expression (design doc section 16).
     for (index, layer) in sequence.adjustment_layers().iter().enumerate() {
@@ -151,10 +229,16 @@ pub fn build(
     args.push("-map".into());
     args.push("[aout]".into());
 
+    // The encoder is resolved against what this machine actually offers, so a
+    // GPU export on a machine without that GPU degrades to software.
+    let acceleration = hardware::resolve(settings.hardware_acceleration, &hardware::available());
+
     args.push("-c:v".into());
-    args.push(settings.encoder().into());
-    args.push("-b:v".into());
-    args.push(format!("{}k", settings.video_bitrate()));
+    args.push(settings.encoder_for(acceleration));
+    args.extend(hardware::quality_args(
+        acceleration,
+        settings.video_bitrate(),
+    ));
     args.push("-pix_fmt".into());
     args.push("yuv420p".into());
     args.push("-r".into());
@@ -207,6 +291,19 @@ fn video_segment(clip: &Clip, input: usize, label: &str, settings: &ExportSettin
     if let Some(color) = filters::color_filter(&clip.color) {
         stages.push(color);
     }
+    if let Some(chain) = fx::effect_chain(&clip.effects) {
+        // A mask limits where the effects apply; without one they cover frame.
+        match clip.masks.iter().find(|mask| mask.enabled) {
+            Some(mask) => {
+                if let Some(masked) = fx::masked_stage(&chain, mask, &format!("mk{input}")) {
+                    stages.push(masked);
+                } else {
+                    stages.push(chain);
+                }
+            }
+            None => stages.push(chain),
+        }
+    }
 
     let scale = clip.transform.scale / 100.0;
     stages.push(format!(
@@ -225,6 +322,68 @@ fn video_segment(clip: &Clip, input: usize, label: &str, settings: &ExportSettin
     // tpad shifts the segment to its start time on the timeline.
     if clip.start_time > 0.0 {
         stages.push(format!("tpad=start_duration={:.4}", clip.start_time));
+    }
+
+    format!("[{input}:v]{}[{label}]", stages.join(","))
+}
+
+/// Draws a text clip onto its transparent canvas and places it on the timeline.
+fn text_segment(clip: &Clip, input: usize, label: &str, settings: &ExportSettings) -> String {
+    let Some(text) = clip.text.as_ref() else {
+        return format!("[{input}:v]null[{label}]");
+    };
+
+    let x = match text.alignment.as_str() {
+        "left" => format!("{}", (settings.width as f64 * text.x).round() as i64),
+        "right" => format!("{}-text_w", (settings.width as f64 * text.x).round() as i64),
+        _ => format!(
+            "{}-text_w/2",
+            (settings.width as f64 * text.x).round() as i64
+        ),
+    };
+    let y = (settings.height as f64 * text.y).round() as i64;
+
+    let mut parts = vec![
+        format!("text='{}'", captions::escape_drawtext(&text.content)),
+        format!("fontsize={}", text.font_size),
+        format!("fontcolor={}", captions::to_ffmpeg_color(&text.color)),
+        format!("x={x}"),
+        format!("y={y}-text_h/2"),
+    ];
+    if text.outline_width > 0 {
+        parts.push(format!("borderw={}", text.outline_width));
+        parts.push(format!(
+            "bordercolor={}",
+            captions::to_ffmpeg_color(&text.outline_color)
+        ));
+    }
+    if !text.background_color.is_empty() {
+        parts.push("box=1".to_string());
+        parts.push(format!(
+            "boxcolor={}",
+            captions::to_ffmpeg_color(&text.background_color)
+        ));
+        parts.push("boxborderw=16".to_string());
+    }
+    if !text.font_family.is_empty() {
+        parts.push(format!(
+            "font='{}'",
+            captions::escape_drawtext(&text.font_family)
+        ));
+    }
+
+    let mut stages = vec![format!("drawtext={}", parts.join(":"))];
+    if clip.transform.opacity < 100.0 {
+        stages.push(format!(
+            "colorchannelmixer=aa={:.4}",
+            clip.transform.opacity / 100.0
+        ));
+    }
+    if clip.start_time > 0.0 {
+        stages.push(format!(
+            "tpad=start_duration={:.4}:color=black@0",
+            clip.start_time
+        ));
     }
 
     format!("[{input}:v]{}[{label}]", stages.join(","))
@@ -279,6 +438,7 @@ mod tests {
             quality: "high".into(),
             bitrate_kbps: None,
             audio_bitrate_kbps: 192,
+            hardware_acceleration: hardware::Acceleration::None,
         }
     }
 
@@ -304,6 +464,7 @@ mod tests {
             }],
             clips,
             caption_tracks: vec![],
+            transitions: vec![],
             playhead: 0.0,
         }
     }
@@ -326,6 +487,10 @@ mod tests {
                 opacity: 100.0,
             },
             color: ColorSettings::default(),
+            masks: vec![],
+            effects: vec![],
+            keyframes: vec![],
+            text: None,
             audio: Some(AudioSettings {
                 volume: 0.0,
                 pan: 0.0,
@@ -446,6 +611,214 @@ mod tests {
             plan.filter_complex
         );
         assert_eq!(plan.filter_complex.matches("[vout]").count(), 1);
+    }
+
+    fn text_clip(track: &str, start: f64, content: &str) -> Clip {
+        let mut clip = clip(track, start);
+        clip.id = "txt1".into();
+        clip.media_id = None;
+        clip.kind = "text".into();
+        clip.source_in = 0.0;
+        clip.source_out = 3.0;
+        clip.audio = None;
+        clip.text = Some(crate::timeline::TextSettings {
+            content: content.into(),
+            font_family: "Noto Sans JP".into(),
+            font_size: 64,
+            color: "#FFFFFF".into(),
+            background_color: String::new(),
+            outline_color: "#000000".into(),
+            outline_width: 2,
+            bold: true,
+            x: 0.5,
+            y: 0.5,
+            alignment: "center".into(),
+        });
+        clip
+    }
+
+    #[test]
+    fn a_text_clip_gets_a_transparent_canvas_not_a_media_input() {
+        let sequence = sequence_with(vec![text_clip("v1", 0.0, "タイトル")]);
+        let plan = build(&sequence, &settings(), &HashMap::new()).unwrap();
+        assert!(
+            plan.filter_complex.contains("drawtext="),
+            "{}",
+            plan.filter_complex
+        );
+        assert!(plan.args.iter().any(|arg| arg.contains("color=c=black@0")));
+    }
+
+    #[test]
+    fn a_text_clip_is_placed_at_its_start_time() {
+        let sequence = sequence_with(vec![text_clip("v1", 4.0, "タイトル")]);
+        let plan = build(&sequence, &settings(), &HashMap::new()).unwrap();
+        assert!(
+            plan.filter_complex
+                .contains("tpad=start_duration=4.0000:color=black@0"),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn clip_effects_are_applied_after_colour() {
+        let mut with_effect = clip("v1", 0.0);
+        with_effect.effects = vec![crate::timeline::Effect {
+            id: "e1".into(),
+            effect_type: "blur".into(),
+            enabled: true,
+            parameters: serde_json::json!({ "amount": 4 })
+                .as_object()
+                .unwrap()
+                .clone(),
+        }];
+        let sequence = sequence_with(vec![with_effect]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        assert!(
+            plan.filter_complex.contains("gblur=sigma=4.000"),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn a_mask_limits_where_an_effect_applies() {
+        let mut with_mask = clip("v1", 0.0);
+        with_mask.effects = vec![crate::timeline::Effect {
+            id: "e1".into(),
+            effect_type: "blur".into(),
+            enabled: true,
+            parameters: serde_json::json!({ "amount": 8 })
+                .as_object()
+                .unwrap()
+                .clone(),
+        }];
+        with_mask.masks = vec![crate::timeline::Mask {
+            id: "m1".into(),
+            name: "顔".into(),
+            shape: crate::timeline::MaskShape::Ellipse {
+                x: 0.5,
+                y: 0.4,
+                radius_x: 0.15,
+                radius_y: 0.2,
+                rotation: 0.0,
+            },
+            feather: 0.03,
+            expansion: 0.0,
+            opacity: 1.0,
+            inverted: false,
+            enabled: true,
+            track: vec![],
+        }];
+
+        let sequence = sequence_with(vec![with_mask]);
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        // The blur runs on a split branch that is recombined through the mask.
+        assert!(
+            plan.filter_complex.contains("split[mk2base][mk2fx]"),
+            "{}",
+            plan.filter_complex
+        );
+        assert!(
+            plan.filter_complex.contains("hypot("),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn a_transition_fades_around_the_cut() {
+        let mut sequence = sequence_with(vec![clip("v1", 0.0)]);
+        sequence.transitions = vec![crate::timeline::Transition {
+            id: "t1".into(),
+            track_id: "v1".into(),
+            from_clip_id: "c1".into(),
+            to_clip_id: "c2".into(),
+            transition_type: "crossDissolve".into(),
+            duration: 1.0,
+        }];
+
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        // The clip runs 0..2, so the cut is at 2.0 and the fade starts at 1.5.
+        assert!(
+            plan.filter_complex.contains("fade=t=out:st=1.5000"),
+            "{}",
+            plan.filter_complex
+        );
+        assert!(
+            plan.filter_complex.contains("fade=t=in:st=2.0000"),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn a_transition_referring_to_a_missing_clip_is_skipped() {
+        let mut sequence = sequence_with(vec![clip("v1", 0.0)]);
+        sequence.transitions = vec![crate::timeline::Transition {
+            id: "t1".into(),
+            track_id: "v1".into(),
+            from_clip_id: "ghost".into(),
+            to_clip_id: "c2".into(),
+            transition_type: "crossDissolve".into(),
+            duration: 1.0,
+        }];
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        assert!(!plan.filter_complex.contains("[vtr0]"));
+    }
+
+    #[test]
+    fn a_white_transition_fades_through_white() {
+        let mut sequence = sequence_with(vec![clip("v1", 0.0)]);
+        sequence.transitions = vec![crate::timeline::Transition {
+            id: "t1".into(),
+            track_id: "v1".into(),
+            from_clip_id: "c1".into(),
+            to_clip_id: "c2".into(),
+            transition_type: "fadeToWhite".into(),
+            duration: 1.0,
+        }];
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        assert!(
+            plan.filter_complex.contains("color=white"),
+            "{}",
+            plan.filter_complex
+        );
+    }
+
+    #[test]
+    fn captions_are_drawn_over_the_composite() {
+        let mut sequence = sequence_with(vec![clip("v1", 0.0)]);
+        sequence.caption_tracks = vec![crate::timeline::CaptionTrack {
+            id: "ct1".into(),
+            name: "字幕".into(),
+            enabled: true,
+            style: crate::timeline::CaptionStyle {
+                font_family: String::new(),
+                font_size: 42,
+                color: "#FFFFFF".into(),
+                background_color: String::new(),
+                outline_color: "#000000".into(),
+                outline_width: 2,
+                position_y: 0.86,
+                alignment: "center".into(),
+                bold: true,
+            },
+            cues: vec![crate::timeline::CaptionCue {
+                id: "c1".into(),
+                start: 0.0,
+                end: 2.0,
+                text: "こんにちは".into(),
+            }],
+        }];
+
+        let plan = build(&sequence, &settings(), &paths()).unwrap();
+        assert!(
+            plan.filter_complex.contains("[vcap0]"),
+            "{}",
+            plan.filter_complex
+        );
     }
 
     #[test]

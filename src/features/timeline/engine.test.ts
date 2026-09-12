@@ -410,4 +410,22 @@ describe("track queries", () => {
     expect(engine.clipAt(sequence, V1, 5)?.id).toBe("a");
     expect(engine.clipAt(sequence, V1, 15)).toBeUndefined();
   });
+
+  it("includes a clip's first frame", () => {
+    const sequence = makeSequence([makeClip({ id: "a", startTime: 4, sourceOut: 10 })]);
+    expect(engine.clipAt(sequence, V1, 4)?.id).toBe("a");
+  });
+
+  it("excludes the frame the clip ends on", () => {
+    const sequence = makeSequence([makeClip({ id: "a", startTime: 0, sourceOut: 10 })]);
+    expect(engine.clipAt(sequence, V1, 10)).toBeUndefined();
+  });
+
+  it("returns the second clip when the playhead sits on a cut", () => {
+    const sequence = makeSequence([
+      makeClip({ id: "a", startTime: 0, sourceOut: 5 }),
+      makeClip({ id: "b", startTime: 5, sourceIn: 5, sourceOut: 10 }),
+    ]);
+    expect(engine.clipAt(sequence, V1, 5)?.id).toBe("b");
+  });
 });

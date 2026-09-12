@@ -2,6 +2,8 @@ import clsx from "clsx";
 import { useEditorStore } from "@/store/editorStore";
 import { useUIStore } from "@/store/uiStore";
 import * as commands from "@/features/timeline/commands";
+import * as fx from "@/features/timeline/effectCommands";
+import * as engine from "@/features/timeline/engine";
 
 /** Tools and timeline-level actions (design doc sections 12-13). */
 export function TimelineToolbar() {
@@ -80,6 +82,35 @@ export function TimelineToolbar() {
         title="調整レイヤーを追加（下のレイヤーに色調整を適用）"
       >
         Adjustment
+      </button>
+
+      <button
+        className="toolbar-button"
+        onClick={() => {
+          const track = sequence.videoTracks[sequence.videoTracks.length - 1];
+          if (!track) return;
+          dispatch(fx.addTextClipCommand(track.id, sequence.playhead));
+        }}
+        title="テキストを追加"
+      >
+        Text
+      </button>
+      <button
+        className="toolbar-button disabled:opacity-40"
+        disabled={selectedClipIds.length === 0}
+        onClick={() => {
+          // A transition joins the selected clip with the one after it.
+          const selected = sequence.clips.find((clip) => clip.id === selectedClipIds[0]);
+          if (!selected) return;
+          const neighbours = engine.clipsOnTrack(sequence, selected.trackId);
+          const index = neighbours.findIndex((clip) => clip.id === selected.id);
+          const next = neighbours[index + 1];
+          if (!next) return;
+          dispatch(fx.addTransitionCommand(selected.id, next.id));
+        }}
+        title="次のクリップとの間にトランジションを追加"
+      >
+        Transition
       </button>
 
       <div className="mx-1 h-4 w-px bg-border" />

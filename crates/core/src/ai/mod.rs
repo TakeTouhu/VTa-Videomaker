@@ -4,9 +4,11 @@
 //! detection is already implemented here because it needs no model at all:
 //! it reads FFmpeg's silencedetect output.
 
+pub mod multicam;
 pub mod scene;
 pub mod silence;
 pub mod stats;
+pub mod tracking;
 pub mod transcribe;
 pub mod vision;
 

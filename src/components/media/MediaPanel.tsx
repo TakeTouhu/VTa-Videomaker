@@ -7,6 +7,7 @@ import { useEditorStore } from "@/store/editorStore";
 import { useUIStore } from "@/store/uiStore";
 import { usePlaybackStore } from "@/store/playbackStore";
 import { importDroppedFiles } from "@/services/mediaService";
+import { MulticamDialog } from "./MulticamDialog";
 
 interface MediaPanelProps {
   className?: string;
@@ -26,6 +27,7 @@ export function MediaPanel({ className }: MediaPanelProps) {
   const setSearch = useUIStore((state) => state.setMediaSearch);
 
   const [dragOver, setDragOver] = useState(false);
+  const [multicamOpen, setMulticamOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -55,6 +57,13 @@ export function MediaPanel({ className }: MediaPanelProps) {
             onClick={() => setView("list")}
           >
             List
+          </button>
+          <button
+            className="toolbar-button h-5 px-1.5"
+            onClick={() => setMulticamOpen(true)}
+            title="マルチカム同期"
+          >
+            Multicam
           </button>
         </>
       }
@@ -116,6 +125,8 @@ export function MediaPanel({ className }: MediaPanelProps) {
           </div>
         )}
       </div>
+
+      {multicamOpen ? <MulticamDialog onClose={() => setMulticamOpen(false)} /> : null}
     </Panel>
   );
 }

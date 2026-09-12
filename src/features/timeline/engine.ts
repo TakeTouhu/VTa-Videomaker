@@ -56,14 +56,20 @@ export function sequenceDuration(sequence: Sequence): number {
   return sequence.clips.reduce((max, clip) => Math.max(max, clipEnd(clip)), 0);
 }
 
-/** The topmost clip covering `time` on a track, if any. */
+/**
+ * The clip covering `time` on a track, if any.
+ *
+ * The range is start-inclusive and end-exclusive, so the playhead sitting on a
+ * clip's first frame shows that clip, and sitting on the cut between two clips
+ * shows the second one - which is what the playhead means.
+ */
 export function clipAt(
   sequence: Sequence,
   trackId: string,
   time: number,
 ): Clip | undefined {
   return clipsOnTrack(sequence, trackId).find(
-    (clip) => time > clip.startTime + TIME_EPSILON && time < clipEnd(clip) - TIME_EPSILON,
+    (clip) => time >= clip.startTime - TIME_EPSILON && time < clipEnd(clip) - TIME_EPSILON,
   );
 }
 

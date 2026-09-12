@@ -3,7 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Backend, ExportSettings } from "./backend";
+import type { AngleSync, Backend, ExportSettings } from "./backend";
+import type { TrackSample } from "@/types/effects";
 import type { MediaItem, MediaProbe } from "@/types/media";
 import type { Project, RecentProject } from "@/types/project";
 import type { BackgroundJob } from "@/types/jobs";
@@ -43,6 +44,16 @@ export const tauriBackend: Backend = {
 
   saveTranscript: (mediaId, segments) =>
     invoke<void>("save_transcript", { mediaId, segments }),
+
+  trackMask: (mediaId, startSeconds, durationSeconds, region) =>
+    invoke<TrackSample[]>("track_mask", {
+      mediaId,
+      startSeconds,
+      durationSeconds,
+      region,
+    }),
+
+  syncMulticam: (mediaIds) => invoke<AngleSync[]>("sync_multicam", { mediaIds }),
 
   loadSettings: () => invoke<AppSettings>("load_settings"),
 

@@ -1,6 +1,14 @@
 /** Sequence / track / clip model (design doc sections 29-31). */
 
 import type { ColorSettings } from "./color";
+import type {
+  Effect,
+  KeyframeTrack,
+  Mask,
+  MulticamState,
+  TextSettings,
+  Transition,
+} from "./effects";
 
 export interface TransformSettings {
   positionX: number;
@@ -60,7 +68,7 @@ export interface AudioTrack {
 
 export type Track = VideoTrack | AudioTrack;
 
-export type ClipKind = "media" | "adjustment";
+export type ClipKind = "media" | "adjustment" | "text";
 
 export interface Clip {
   id: string;
@@ -79,6 +87,16 @@ export interface Clip {
   color: ColorSettings;
   audio?: AudioSettings;
   label?: string;
+  /** Masks limiting where this clip's colour and effects apply (section 17). */
+  masks?: Mask[];
+  /** Effect stack, applied in order after colour (section 58). */
+  effects?: Effect[];
+  /** Parameter animation, in clip-relative time (section 58). */
+  keyframes?: KeyframeTrack[];
+  /** Set on text clips. */
+  text?: TextSettings;
+  /** Set when the clip comes from a multicam group. */
+  multicam?: MulticamState;
 }
 
 /** One subtitle, in sequence time (design doc sections 57, 58). */
@@ -134,6 +152,8 @@ export interface Sequence {
   clips: Clip[];
   /** Subtitle tracks, rendered over the composite (section 58). */
   captionTracks?: CaptionTrack[];
+  /** Transitions between adjacent clips (section 58). */
+  transitions?: Transition[];
   /** Playhead position in seconds, persisted with the project. */
   playhead: number;
 }

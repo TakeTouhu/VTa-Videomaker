@@ -12,6 +12,13 @@ import type { BackgroundJob } from "@/types/jobs";
 import type { MediaAnalysis, TranscriptSegment } from "@/types/ai";
 import type { Sequence } from "@/types/timeline";
 import type { AppSettings } from "@/store/settingsStore";
+import type { TrackSample } from "@/types/effects";
+
+export interface AngleSync {
+  mediaId: string;
+  offset: number;
+  confidence: number;
+}
 
 export interface ExportSettings {
   outputPath: string;
@@ -24,6 +31,14 @@ export interface ExportSettings {
   /** Only read when quality === "custom". */
   bitrateKbps?: number;
   audioBitrateKbps: number;
+  /** GPU encoder selection; falls back to software when unavailable. */
+  hardwareAcceleration?:
+    | "none"
+    | "auto"
+    | "nvenc"
+    | "qsv"
+    | "amf"
+    | "videoToolbox";
 }
 
 export interface AnalyzeOptions {
@@ -62,6 +77,16 @@ export interface Backend {
   transcribeAudio(audioPath: string): Promise<TranscriptSegment[]>;
   /** Stores a transcript produced by a hosted provider in the media cache. */
   saveTranscript(mediaId: string, segments: TranscriptSegment[]): Promise<void>;
+
+  /** Tracks a normalised region through a clip, returning motion samples. */
+  trackMask(
+    mediaId: string,
+    startSeconds: number,
+    durationSeconds: number,
+    region: [number, number, number, number],
+  ): Promise<TrackSample[]>;
+  /** Aligns camera angles by cross-correlating their audio. */
+  syncMulticam(mediaIds: string[]): Promise<AngleSync[]>;
 
   /* Settings */
   loadSettings(): Promise<AppSettings>;

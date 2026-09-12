@@ -1,6 +1,9 @@
 import clsx from "clsx";
 import { Panel } from "@/components/ui/Panel";
 import { TransformSection } from "./TransformSection";
+import { EffectsSection } from "./EffectsSection";
+import { MaskSection } from "./MaskSection";
+import { TextSection } from "./TextSection";
 import { ColorSection } from "./ColorSection";
 import { AudioSection } from "./AudioSection";
 import { useEditorStore } from "@/store/editorStore";
@@ -55,7 +58,12 @@ export function InspectorPanel({ className }: InspectorPanelProps) {
             <span className="text-2xs">単一選択で編集できます</span>
           </p>
         ) : tab === "effect" ? (
-          <TransformSection clip={clip} />
+          <div className="flex flex-col gap-3">
+            {clip.kind === "text" ? <TextSection clip={clip} /> : null}
+            <TransformSection clip={clip} />
+            <EffectsSection clip={clip} />
+            <MaskSection clip={clip} />
+          </div>
         ) : tab === "color" ? (
           <ColorSection clip={clip} />
         ) : (

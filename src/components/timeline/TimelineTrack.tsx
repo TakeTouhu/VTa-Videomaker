@@ -84,6 +84,25 @@ export function TimelineTrack({ track, sequence, zoom }: TimelineTrackProps) {
         />
       ) : null}
 
+      {(sequence.transitions ?? [])
+        .filter((transition) => transition.trackId === track.id)
+        .map((transition) => {
+          const from = clips.find((clip) => clip.id === transition.fromClipId);
+          if (!from) return null;
+          const centre = from.startTime + (from.sourceOut - from.sourceIn) / (from.speed || 1);
+          return (
+            <div
+              key={transition.id}
+              className="pointer-events-none absolute top-0 h-full border-x border-accent/70 bg-accent/25"
+              style={{
+                left: (centre - transition.duration / 2) * zoom,
+                width: Math.max(transition.duration * zoom, 4),
+              }}
+              title={`トランジション: ${transition.type}`}
+            />
+          );
+        })}
+
       {clips.map((clip) => (
         <TimelineClip
           key={clip.id}

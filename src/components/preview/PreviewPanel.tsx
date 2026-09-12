@@ -8,7 +8,10 @@ import { adjustmentLayersAt, clipAt, sequenceDuration } from "@/features/timelin
 import { colorToCssFilter } from "@/features/color/preview";
 import { CurveFilterDefs } from "./CurveFilterDefs";
 import { CaptionOverlay } from "./CaptionOverlay";
+import { TextClipPreview } from "./TextClipPreview";
 import { mergeColorStack } from "@/features/color/stack";
+import { resolveClipAt } from "@/features/timeline/keyframes";
+import { MaskOverlay } from "./MaskOverlay";
 
 interface PreviewPanelProps {
   className?: string;
@@ -40,27 +43,40 @@ export function PreviewPanel({ className }: PreviewPanelProps) {
     }
     if (source.kind !== "sequence") return null;
 
-    const topTrack = [...sequence.videoTracks].reverse().find((track) => !track.hidden);
-    if (!topTrack) return null;
+    // Top to bottom: the first visible track with a clip under the playhead
+    // wins, so a title on V3 is previewed over the footage on V1.
+    for (const track of [...sequence.videoTracks].reverse()) {
+      if (track.hidden) continue;
+      const raw = clipAt(sequence, track.id, sequence.playhead);
+      if (!raw) continue;
 
-    const clip = clipAt(sequence, topTrack.id, sequence.playhead);
-    if (!clip?.mediaId) return null;
+      // Animated parameters are resolved before anything reads them, so the
+      // preview and the export agree.
+      const clip = resolveClipAt(raw, sequence.playhead);
 
-    const item = project.media.find((media) => media.id === clip.mediaId);
-    if (!item) return null;
+      // Text and adjustment clips have no media: they are drawn by the
+      // overlays rather than by the video element.
+      if (!clip.mediaId) {
+        return { url: null, sourceTime: 0, clip };
+      }
 
-    const speed = clip.speed > 0 ? clip.speed : 1;
-    return {
-      url: previewUrl(item),
-      sourceTime: clip.sourceIn + (sequence.playhead - clip.startTime) * speed,
-      clip,
-    };
+      const item = project.media.find((media) => media.id === clip.mediaId);
+      if (!item) continue;
+
+      const speed = clip.speed > 0 ? clip.speed : 1;
+      return {
+        url: previewUrl(item),
+        sourceTime: clip.sourceIn + (sequence.playhead - clip.startTime) * speed,
+        clip,
+      };
+    }
+    return null;
   }, [project.media, sequence, source]);
 
   // Keep the element in sync with the playhead while scrubbing.
   useEffect(() => {
     const element = videoRef.current;
-    if (!element || !active || playing) return;
+    if (!element || !active?.url || playing) return;
     if (Math.abs(element.currentTime - active.sourceTime) > 0.05) {
       element.currentTime = active.sourceTime;
     }
@@ -118,7 +134,8 @@ export function PreviewPanel({ className }: PreviewPanelProps) {
       >
         <CurveFilterDefs curves={graded?.curves} />
         <CaptionOverlay tracks={sequence.captionTracks} time={sequence.playhead} />
-        {active ? (
+        <MaskOverlay clip={active?.clip ?? null} time={sequence.playhead} />
+        {active?.url ? (
           <video
             ref={videoRef}
             key={active.url}
@@ -128,6 +145,8 @@ export function PreviewPanel({ className }: PreviewPanelProps) {
             onClick={() => usePlaybackStore.getState().toggle()}
             onEnded={() => pause()}
           />
+        ) : active?.clip?.kind === "text" ? (
+          <TextClipPreview clip={active.clip} />
         ) : (
           <p className="text-xs text-text-muted">
             {sequence.clips.length === 0

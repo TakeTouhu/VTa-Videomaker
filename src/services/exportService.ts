@@ -36,6 +36,7 @@ export function defaultExportSettings(): ExportSettings {
     fps: sequence.fps,
     quality: "high",
     audioBitrateKbps: 192,
+    hardwareAcceleration: "none",
   };
 }
 

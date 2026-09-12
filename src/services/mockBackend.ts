@@ -118,6 +118,14 @@ export const mockBackend: Backend = {
     // Nothing to persist in the browser; transcripts live only in memory.
   },
 
+  async trackMask() {
+    throw new Error("トラッキングにはデスクトップ版が必要です");
+  },
+
+  async syncMulticam() {
+    throw new Error("マルチカム同期にはデスクトップ版が必要です");
+  },
+
   async loadSettings(): Promise<AppSettings> {
     const raw = window.localStorage.getItem("settings");
     return raw ? (JSON.parse(raw) as AppSettings) : DEFAULT_SETTINGS;

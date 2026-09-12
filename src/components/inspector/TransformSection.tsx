@@ -5,6 +5,7 @@ import { useEditorStore } from "@/store/editorStore";
 import * as commands from "@/features/timeline/commands";
 import { clipDuration } from "@/features/timeline/engine";
 import { formatDuration } from "@/utils/time";
+import { KeyframeButton } from "./KeyframeButton";
 
 interface TransformSectionProps {
   clip: Clip;
@@ -30,30 +31,57 @@ export function TransformSection({ clip }: TransformSectionProps) {
           value={clip.transform.positionY}
           onChange={(positionY) => patchTransform({ positionY })}
         />
-        <SliderField
-          label="Scale"
-          value={clip.transform.scale}
-          min={1}
-          max={400}
-          defaultValue={100}
-          onChange={(scale) => patchTransform({ scale })}
-        />
-        <SliderField
-          label="Rotation"
-          value={clip.transform.rotation}
-          min={-180}
-          max={180}
-          defaultValue={0}
-          onChange={(rotation) => patchTransform({ rotation })}
-        />
-        <SliderField
-          label="Opacity"
-          value={clip.transform.opacity}
-          min={0}
-          max={100}
-          defaultValue={100}
-          onChange={(opacity) => patchTransform({ opacity })}
-        />
+        <div className="flex items-end gap-1">
+          <div className="flex-1">
+            <SliderField
+              label="Scale"
+              value={clip.transform.scale}
+              min={1}
+              max={400}
+              defaultValue={100}
+              onChange={(scale) => patchTransform({ scale })}
+            />
+          </div>
+          <KeyframeButton
+            clip={clip}
+            property="transform.scale"
+            value={clip.transform.scale}
+          />
+        </div>
+        <div className="flex items-end gap-1">
+          <div className="flex-1">
+            <SliderField
+              label="Rotation"
+              value={clip.transform.rotation}
+              min={-180}
+              max={180}
+              defaultValue={0}
+              onChange={(rotation) => patchTransform({ rotation })}
+            />
+          </div>
+          <KeyframeButton
+            clip={clip}
+            property="transform.rotation"
+            value={clip.transform.rotation}
+          />
+        </div>
+        <div className="flex items-end gap-1">
+          <div className="flex-1">
+            <SliderField
+              label="Opacity"
+              value={clip.transform.opacity}
+              min={0}
+              max={100}
+              defaultValue={100}
+              onChange={(opacity) => patchTransform({ opacity })}
+            />
+          </div>
+          <KeyframeButton
+            clip={clip}
+            property="transform.opacity"
+            value={clip.transform.opacity}
+          />
+        </div>
       </Group>
 
       <Group title="Video">

@@ -1,7 +1,9 @@
 //! Render engine: turns a sequence into an FFmpeg filter graph and runs it.
 
 pub mod captions;
+pub mod effects;
 pub mod graph;
+pub mod hardware;
 pub mod progress;
 
 use crate::error::{CoreError, CoreResult};
@@ -28,6 +30,9 @@ pub struct ExportSettings {
     #[serde(default)]
     pub bitrate_kbps: Option<u32>,
     pub audio_bitrate_kbps: u32,
+    /// GPU encoder selection (design doc section 58).
+    #[serde(default)]
+    pub hardware_acceleration: hardware::Acceleration,
 }
 
 impl ExportSettings {
@@ -41,6 +46,12 @@ impl ExportSettings {
         }
     }
 
+    /// Encoder name for the resolved acceleration.
+    pub fn encoder_for(&self, acceleration: hardware::Acceleration) -> String {
+        hardware::encoder_name(&self.codec, acceleration)
+    }
+
+    /// Software encoder name, used when no acceleration is in play.
     pub fn encoder(&self) -> &'static str {
         match self.codec.as_str() {
             "h265" => "libx265",

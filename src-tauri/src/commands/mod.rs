@@ -5,7 +5,8 @@
 
 use crate::AppState;
 use ave_core::ai::{
-    scene, silence, stats, transcribe, vision, Loudness, MediaAnalysis, TranscriptSegment,
+    multicam, scene, silence, stats, tracking, transcribe, vision, Loudness, MediaAnalysis,
+    TranscriptSegment,
 };
 use ave_core::cache;
 use ave_core::error::CoreError;
@@ -406,6 +407,73 @@ pub fn save_transcript(media_id: String, segments: Vec<TranscriptSegment>) -> Co
     let path = cache::transcript_path(&media_id)?;
     std::fs::write(path, serde_json::to_vec(&segments)?)?;
     Ok(())
+}
+
+/// Tracks a normalised region through a clip (design doc section 17).
+#[tauri::command]
+pub async fn track_mask(
+    media_id: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    region: (f64, f64, f64, f64),
+    app: tauri::AppHandle,
+) -> CommandResult<Vec<tracking::TrackSample>> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    // Proxies are fine here: tracking runs on a downscaled grayscale strip.
+    let source = PathBuf::from(item.proxy_path.as_ref().unwrap_or(&item.source_path));
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let frames = tracking::decode_frames(&source, start_seconds, duration_seconds)?;
+        Ok::<_, CoreError>(tracking::track_region(&frames, region))
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
+}
+
+/// Aligns camera angles by cross-correlating their audio (section 58).
+#[tauri::command]
+pub async fn sync_multicam(
+    media_ids: Vec<String>,
+    app: tauri::AppHandle,
+) -> CommandResult<Vec<multicam::AngleSync>> {
+    let items: Vec<(String, PathBuf, f64)> = {
+        let state = app.state::<AppState>();
+        media_ids
+            .iter()
+            .filter_map(|id| {
+                state.media.get(id).map(|item| {
+                    (
+                        item.id.clone(),
+                        PathBuf::from(&item.source_path),
+                        item.duration,
+                    )
+                })
+            })
+            .collect()
+    };
+
+    if items.len() < 2 {
+        return Err(CoreError::Other(
+            "同期には2つ以上のアングルが必要です".into(),
+        ));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let borrowed: Vec<(String, &Path, f64)> = items
+            .iter()
+            .map(|(id, path, duration)| (id.clone(), path.as_path(), *duration))
+            .collect();
+        multicam::synchronise(&borrowed)
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
 }
 
 #[tauri::command]

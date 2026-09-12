@@ -1,6 +1,7 @@
 //! FFmpeg / ffprobe control. The only place in the codebase that builds a
 //! command line (design rule 5).
 
+pub mod audio;
 pub mod filters;
 pub mod probe;
 pub mod proxy;

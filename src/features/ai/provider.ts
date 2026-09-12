@@ -17,6 +17,8 @@ export interface PlanRequest {
   sequence: Sequence;
   /** Analysis for every media item referenced by the sequence. */
   analyses: MediaAnalysis[];
+  /** Human readable media names, so the model can reason about the footage. */
+  mediaNames?: Record<string, string>;
 }
 
 export interface AIProvider {

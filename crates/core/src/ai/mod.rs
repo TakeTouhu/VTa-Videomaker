@@ -4,7 +4,9 @@
 //! detection is already implemented here because it needs no model at all:
 //! it reads FFmpeg's silencedetect output.
 
+pub mod scene;
 pub mod silence;
+pub mod transcribe;
 
 use serde::{Deserialize, Serialize};
 

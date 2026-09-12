@@ -5,11 +5,20 @@ import { EditPlanCard } from "./EditPlanCard";
 import { AIHistoryList } from "./AIHistoryList";
 import { useAIStore } from "@/store/aiStore";
 import type { AIEditMode } from "@/store/aiStore";
-import { proposeSilenceCut } from "@/services/aiService";
+import { analyzeSequenceMedia, requestEdit } from "@/services/aiService";
+import { TranscriptPanel } from "./TranscriptPanel";
+import { useSettingsStore } from "@/store/settingsStore";
 
 interface AIAssistantPanelProps {
   className?: string;
 }
+
+/** Example requests shown in an empty chat (design doc section 24). */
+const SUGGESTIONS = [
+  "無音部分を全部削除して",
+  "言い直しを削除して",
+  "3分以内にまとめて",
+];
 
 const MODES: { id: AIEditMode; label: string; hint: string }[] = [
   { id: "auto", label: "Auto", hint: "AIが完全自動で編集します" },
@@ -32,22 +41,15 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
   const addMessage = useAIStore((state) => state.addMessage);
   const pendingPlan = useAIStore((state) => state.pendingPlan);
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<"chat" | "transcript">("chat");
+  const provider = useSettingsStore((state) => state.settings.aiProvider);
 
-  const send = () => {
-    const text = input.trim();
-    if (!text || busy) return;
+  const send = (text: string = input) => {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
     setInput("");
-    addMessage("user", text);
-
-    // Only the built-in silence cut is implemented; anything else says so.
-    if (/無音|silence/i.test(text)) {
-      void proposeSilenceCut();
-      return;
-    }
-    addMessage(
-      "assistant",
-      "現在は「無音部分を削除して」に対応しています。自然言語での編集指示はPhase 3で有効になります。",
-    );
+    addMessage("user", trimmed);
+    void requestEdit(trimmed);
   };
 
   return (
@@ -69,20 +71,46 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
         </select>
       }
     >
+      <div className="flex shrink-0 border-b border-border">
+        {(["chat", "transcript"] as const).map((entry) => (
+          <button
+            key={entry}
+            className={clsx(
+              "flex-1 border-b-2 px-2 py-1 text-2xs uppercase tracking-wide",
+              tab === entry
+                ? "border-accent text-accent"
+                : "border-transparent text-text-secondary hover:text-text",
+            )}
+            onClick={() => setTab(entry)}
+          >
+            {entry === "chat" ? "Chat" : "Transcript"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "transcript" ? (
+        <TranscriptPanel />
+      ) : (
+      <>
       <div className="min-h-0 flex-1 space-y-2 overflow-auto p-2">
         {messages.length === 0 ? (
           <div className="mt-4 space-y-2 text-2xs leading-relaxed text-text-muted">
             <p>素材を解析して編集案を作成します。</p>
             <p className="text-text-secondary">例:</p>
-            <button
-              className="block w-full rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-text"
-              onClick={() => {
-                addMessage("user", "無音部分を全部削除して");
-                void proposeSilenceCut();
-              }}
-            >
-              無音部分を全部削除して
-            </button>
+            {SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion}
+                className="block w-full rounded border border-border px-2 py-1 text-left hover:border-accent hover:text-text"
+                onClick={() => send(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))}
+            <p className="pt-1 text-text-muted">
+              {provider === "local"
+                ? "ローカルモード: 上記の指示に対応します。自由な指示にはAPIプロバイダの設定が必要です。"
+                : "自由な指示を入力できます。"}
+            </p>
           </div>
         ) : (
           messages.map((message) => (
@@ -106,6 +134,13 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
       </div>
 
       <div className="shrink-0 border-t border-border p-2">
+        <button
+          className="mb-1 w-full rounded border border-border px-2 py-1 text-2xs text-text-secondary hover:border-accent hover:text-text disabled:opacity-40"
+          disabled={busy}
+          onClick={() => void analyzeSequenceMedia({ transcribe: true, force: true })}
+        >
+          素材を解析（無音・シーン・文字起こし）
+        </button>
         <div className="flex gap-1">
           <textarea
             className="h-14 flex-1 resize-none rounded border border-border bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
@@ -121,13 +156,15 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
           />
           <button
             className="toolbar-button h-14 border-accent/60 bg-accent-muted px-3 text-accent disabled:opacity-40"
-            onClick={send}
+            onClick={() => send()}
             disabled={busy}
           >
             送信
           </button>
         </div>
       </div>
+      </>
+      )}
     </Panel>
   );
 }

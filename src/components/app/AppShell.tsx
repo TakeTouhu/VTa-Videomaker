@@ -4,15 +4,18 @@ import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
 import { AIAssistantPanel } from "@/components/ai/AIAssistantPanel";
 import { ExportDialog } from "@/components/export/ExportDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { ErrorToasts } from "./ErrorToasts";
 import { useUIStore } from "@/store/uiStore";
+import { useSettingsStore } from "@/store/settingsStore";
 
 /** Workspace layout (design doc section 7). */
 export function AppShell() {
   const aiPanelOpen = useUIStore((state) => state.aiPanelOpen);
   const exportDialogOpen = useUIStore((state) => state.exportDialogOpen);
+  const settingsOpen = useSettingsStore((state) => state.dialogOpen);
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
@@ -36,6 +39,7 @@ export function AppShell() {
       <StatusBar />
       <ErrorToasts />
       {exportDialogOpen ? <ExportDialog /> : null}
+      {settingsOpen ? <SettingsDialog /> : null}
     </div>
   );
 }

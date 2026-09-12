@@ -4,14 +4,15 @@
 //! translate errors. No FFmpeg command line is built here.
 
 use crate::AppState;
-use ave_core::ai::{silence, MediaAnalysis};
+use ave_core::ai::{scene, silence, transcribe, MediaAnalysis, TranscriptSegment};
 use ave_core::cache;
 use ave_core::error::CoreError;
-use ave_core::ffmpeg::{probe, proxy, thumbnail, waveform};
+use ave_core::ffmpeg::{audio, probe, proxy, thumbnail, waveform};
 use ave_core::jobs::{BackgroundJob, JobStatus};
 use ave_core::media::{self, MediaItem};
 use ave_core::project;
 use ave_core::render::{self, ExportSettings};
+use ave_core::settings::{self, AppSettings};
 use ave_core::timeline::Sequence;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -210,9 +211,22 @@ pub fn list_recent_projects() -> CommandResult<Vec<Value>> {
     Ok(recents)
 }
 
+/// Options for `analyze_media`, mirroring the TypeScript `AnalyzeOptions`.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeOptions {
+    #[serde(default)]
+    pub scenes: bool,
+    #[serde(default)]
+    pub silence_noise_db: Option<f64>,
+    #[serde(default)]
+    pub silence_min_seconds: Option<f64>,
+}
+
 #[tauri::command]
 pub async fn analyze_media(
     media_id: String,
+    options: Option<AnalyzeOptions>,
     app: tauri::AppHandle,
 ) -> CommandResult<MediaAnalysis> {
     let item = {
@@ -223,25 +237,134 @@ pub async fn analyze_media(
             .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
     };
 
+    let options = options.unwrap_or_default();
     let source = PathBuf::from(&item.source_path);
-    let silences = tauri::async_runtime::spawn_blocking(move || {
-        silence::detect(
-            &source,
-            silence::DEFAULT_NOISE_DB,
-            silence::DEFAULT_MIN_DURATION,
-        )
+    let noise = options
+        .silence_noise_db
+        .unwrap_or(silence::DEFAULT_NOISE_DB);
+    let min = options
+        .silence_min_seconds
+        .unwrap_or(silence::DEFAULT_MIN_DURATION);
+    let want_scenes = options.scenes;
+
+    let analysis_source = source.clone();
+    let (silences, scenes) = tauri::async_runtime::spawn_blocking(move || {
+        let silences = silence::detect(&analysis_source, noise, min)?;
+        let scenes = if want_scenes {
+            scene::detect(&analysis_source, scene::DEFAULT_THRESHOLD)?
+        } else {
+            Vec::new()
+        };
+        Ok::<_, CoreError>((silences, scenes))
     })
     .await
     .map_err(|error| CoreError::Other(error.to_string()))??;
 
+    // A transcript produced earlier (locally or by a hosted provider) is cached
+    // on disk, so re-analysing does not throw it away.
+    let transcript = read_cached_transcript(&media_id);
+
     Ok(MediaAnalysis {
         media_id,
-        // Speech to text arrives with the Phase 3 provider work.
-        transcript: Vec::new(),
+        transcript,
         silences,
-        scenes: Vec::new(),
+        scenes,
         analyzed_at: now(),
     })
+}
+
+fn read_cached_transcript(media_id: &str) -> Vec<TranscriptSegment> {
+    cache::transcript_path(media_id)
+        .ok()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Extracts a speech-ready WAV for the given media and returns its path.
+#[tauri::command]
+pub async fn extract_audio(media_id: String, app: tauri::AppHandle) -> CommandResult<String> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    let destination = cache::subdirectory("audio")?.join(format!("{media_id}.wav"));
+    if destination.exists() {
+        return Ok(destination.display().to_string());
+    }
+
+    let source = PathBuf::from(&item.source_path);
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        audio::extract_for_speech(&source, &destination)
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    Ok(path.display().to_string())
+}
+
+/// Runs the locally configured speech engine over an extracted WAV.
+#[tauri::command]
+pub async fn transcribe_audio(audio_path: String) -> CommandResult<Vec<TranscriptSegment>> {
+    let configured = settings::load().speech;
+    if !configured.is_configured() {
+        return Err(CoreError::Other(
+            "ローカル音声認識エンジンが設定されていません。設定画面で実行ファイルとモデルを指定してください。"
+                .into(),
+        ));
+    }
+
+    let engine = transcribe::LocalEngine {
+        binary: configured.binary,
+        model: configured.model,
+        language: configured.language,
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        transcribe::transcribe_local(&engine, Path::new(&audio_path))
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
+}
+
+/// Persists a transcript produced by a hosted provider.
+#[tauri::command]
+pub fn save_transcript(media_id: String, segments: Vec<TranscriptSegment>) -> CommandResult<()> {
+    let path = cache::transcript_path(&media_id)?;
+    std::fs::write(path, serde_json::to_vec(&segments)?)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_settings() -> CommandResult<AppSettings> {
+    Ok(settings::redacted(&settings::load()))
+}
+
+#[tauri::command]
+pub fn save_settings(patch: AppSettings) -> CommandResult<()> {
+    let mut current = settings::load();
+    // A redacted key coming back from the UI means "leave it as it was".
+    let key = if patch.ai_api_key == "********" {
+        current.ai_api_key.clone()
+    } else {
+        patch.ai_api_key.clone()
+    };
+
+    current = AppSettings {
+        ai_api_key: key,
+        ..patch
+    };
+    settings::save(&current)
+}
+
+/// The API key, read only when a request is actually about to be made.
+#[tauri::command]
+pub fn resolve_api_key() -> CommandResult<String> {
+    Ok(settings::load().ai_api_key)
 }
 
 #[tauri::command]

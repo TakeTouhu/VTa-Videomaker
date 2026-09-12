@@ -3,6 +3,7 @@ import { useEditorStore } from "@/store/editorStore";
 import { useUIStore } from "@/store/uiStore";
 import { canRedo, canUndo, redoLabel, undoLabel } from "@/features/history/historyManager";
 import { saveProject } from "@/services/projectService";
+import { useSettingsStore } from "@/store/settingsStore";
 
 /** Menu / project name / undo / redo / export (design doc section 7). */
 export function TopBar() {
@@ -60,6 +61,13 @@ export function TopBar() {
         {dirty ? <span className="self-center text-2xs text-warning">●</span> : null}
       </div>
 
+      <button
+        className="toolbar-button"
+        onClick={() => useSettingsStore.getState().setDialogOpen(true)}
+        title="設定"
+      >
+        設定
+      </button>
       <button
         className={clsx("toolbar-button", aiPanelOpen && "toolbar-button-active")}
         onClick={toggleAIPanel}

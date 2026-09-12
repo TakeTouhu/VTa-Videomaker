@@ -16,6 +16,7 @@ pub mod jobs;
 pub mod media;
 pub mod project;
 pub mod render;
+pub mod settings;
 pub mod timeline;
 
 pub use error::{CoreError, CoreResult};

@@ -10,6 +10,8 @@ import type { Project, RecentProject } from "@/types/project";
 import type { BackgroundJob } from "@/types/jobs";
 import type { MediaAnalysis } from "@/types/ai";
 import { createId } from "@/utils/id";
+import type { AppSettings } from "@/store/settingsStore";
+import { DEFAULT_SETTINGS } from "@/store/settingsStore";
 
 const objectUrls = new Map<string, string>();
 const listeners = new Set<(job: BackgroundJob) => void>();
@@ -102,6 +104,31 @@ export const mockBackend: Backend = {
 
   async analyzeMedia(mediaId): Promise<MediaAnalysis> {
     throw new Error(`解析にはデスクトップ版が必要です (${mediaId})`);
+  },
+
+  async extractAudio() {
+    throw new Error("音声抽出にはデスクトップ版が必要です");
+  },
+
+  async transcribeAudio() {
+    throw new Error("音声認識にはデスクトップ版が必要です");
+  },
+
+  async saveTranscript() {
+    // Nothing to persist in the browser; transcripts live only in memory.
+  },
+
+  async loadSettings(): Promise<AppSettings> {
+    const raw = window.localStorage.getItem("settings");
+    return raw ? (JSON.parse(raw) as AppSettings) : DEFAULT_SETTINGS;
+  },
+
+  async saveSettings(settings: AppSettings) {
+    window.localStorage.setItem("settings", JSON.stringify(settings));
+  },
+
+  async resolveApiKey() {
+    return "";
   },
 
   async startExport(_sequence, _settings: ExportSettings) {

@@ -7,8 +7,9 @@ import type { Backend, ExportSettings } from "./backend";
 import type { MediaItem, MediaProbe } from "@/types/media";
 import type { Project, RecentProject } from "@/types/project";
 import type { BackgroundJob } from "@/types/jobs";
-import type { MediaAnalysis } from "@/types/ai";
+import type { MediaAnalysis, TranscriptSegment } from "@/types/ai";
 import type { Sequence } from "@/types/timeline";
+import type { AppSettings } from "@/store/settingsStore";
 
 export const tauriBackend: Backend = {
   probeMedia: (path) => invoke<MediaProbe>("probe_media", { path }),
@@ -32,7 +33,22 @@ export const tauriBackend: Backend = {
 
   listRecentProjects: () => invoke<RecentProject[]>("list_recent_projects"),
 
-  analyzeMedia: (mediaId) => invoke<MediaAnalysis>("analyze_media", { mediaId }),
+  analyzeMedia: (mediaId, options) =>
+    invoke<MediaAnalysis>("analyze_media", { mediaId, options: options ?? null }),
+
+  extractAudio: (mediaId) => invoke<string>("extract_audio", { mediaId }),
+
+  transcribeAudio: (audioPath) =>
+    invoke<TranscriptSegment[]>("transcribe_audio", { audioPath }),
+
+  saveTranscript: (mediaId, segments) =>
+    invoke<void>("save_transcript", { mediaId, segments }),
+
+  loadSettings: () => invoke<AppSettings>("load_settings"),
+
+  saveSettings: (settings: AppSettings) => invoke<void>("save_settings", { patch: settings }),
+
+  resolveApiKey: () => invoke<string>("resolve_api_key"),
 
   startExport: (sequence: Sequence, settings: ExportSettings) =>
     invoke<string>("start_export", { sequence, settings }),

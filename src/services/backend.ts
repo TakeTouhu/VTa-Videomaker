@@ -9,8 +9,9 @@
 import type { MediaItem, MediaProbe } from "@/types/media";
 import type { Project, RecentProject } from "@/types/project";
 import type { BackgroundJob } from "@/types/jobs";
-import type { MediaAnalysis } from "@/types/ai";
+import type { MediaAnalysis, TranscriptSegment } from "@/types/ai";
 import type { Sequence } from "@/types/timeline";
+import type { AppSettings } from "@/store/settingsStore";
 
 export interface ExportSettings {
   outputPath: string;
@@ -23,6 +24,14 @@ export interface ExportSettings {
   /** Only read when quality === "custom". */
   bitrateKbps?: number;
   audioBitrateKbps: number;
+}
+
+export interface AnalyzeOptions {
+  /** Detect scene boundaries as well as silence. */
+  scenes?: boolean;
+  /** Silence threshold in dB and minimum duration in seconds. */
+  silenceNoiseDb?: number;
+  silenceMinSeconds?: number;
 }
 
 export interface Backend {
@@ -40,8 +49,20 @@ export interface Backend {
   loadProject(path: string): Promise<Project>;
   listRecentProjects(): Promise<RecentProject[]>;
 
-  /* Analysis (Phase 3) */
-  analyzeMedia(mediaId: string): Promise<MediaAnalysis>;
+  /* Analysis */
+  analyzeMedia(mediaId: string, options?: AnalyzeOptions): Promise<MediaAnalysis>;
+  /** Extracts a speech-ready WAV and returns its path. */
+  extractAudio(mediaId: string): Promise<string>;
+  /** Runs the locally configured speech engine over an extracted WAV. */
+  transcribeAudio(audioPath: string): Promise<TranscriptSegment[]>;
+  /** Stores a transcript produced by a hosted provider in the media cache. */
+  saveTranscript(mediaId: string, segments: TranscriptSegment[]): Promise<void>;
+
+  /* Settings */
+  loadSettings(): Promise<AppSettings>;
+  saveSettings(settings: AppSettings): Promise<void>;
+  /** The unmasked API key, read only when a request is about to be made. */
+  resolveApiKey(): Promise<string>;
 
   /* Render */
   startExport(sequence: Sequence, settings: ExportSettings): Promise<string>;

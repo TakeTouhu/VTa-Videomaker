@@ -1,6 +1,6 @@
 node_modules/
-dist/
-dist-ssr/
+/dist/
+/dist-ssr/
 *.local
 .DS_Store
 .vscode/*
@@ -16,7 +16,9 @@ src-tauri/gen/
 src-tauri/bin/*
 !src-tauri/bin/README.txt
 
-# App runtime data
-logs/
-cache/
+# App runtime data written next to the executable at run time.
+# Anchored to the repository root: an unanchored `cache/` also matches
+# source directories such as crates/core/src/cache/.
+/logs/
+/cache/
 *.log

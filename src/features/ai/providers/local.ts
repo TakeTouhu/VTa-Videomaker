@@ -15,7 +15,9 @@ import { matchIntent } from "../intent";
 
 export const LOCAL_CAPABILITY_MESSAGE =
   "ローカルモードで対応しているのは「無音を削除」「言い直し・フィラーを削除」" +
-  "「○分にまとめる」です。その他の指示にはAPIプロバイダの設定が必要です。";
+  "「○分にまとめる」「ハイライト」「一番良いテイク」「色を自動補正」" +
+  "「音量を揃えて」「字幕を作って」です。" +
+  "それ以外の自由な指示にはAPIプロバイダの設定が必要です。";
 
 export function createLocalProvider(): AIProvider {
   return {

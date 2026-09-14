@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { AppSettings } from "@/store/settingsStore";
 import { saveSettings } from "@/services/settingsService";
+import { isTauri } from "@/services/backend";
+import { DEFAULT_SPEECH_MODEL, SPEECH_MODELS } from "@/features/web/speech";
 
 /** AI provider and local engine configuration. Keys never enter project.json. */
 export function SettingsDialog() {
@@ -30,7 +32,9 @@ export function SettingsDialog() {
                 patch({ aiProvider: event.target.value as AppSettings["aiProvider"] })
               }
             >
-              <option value="local">ローカル（組み込みの編集プランのみ）</option>
+              <option value="local">
+                ブラウザ内で処理（APIキー不要）
+              </option>
               <option value="openai">OpenAI互換API</option>
             </select>
           </Row>
@@ -68,15 +72,58 @@ export function SettingsDialog() {
             </>
           ) : (
             <p className="mt-1 text-2xs leading-relaxed text-text-muted">
-              ローカルモードでは「無音を削除」「言い直しを削除」「○分にまとめる」に対応します。
+              音声認識を含め、すべてブラウザ内で処理します。外部に送信されません。
+              「無音を削除」「言い直しを削除」「○分にまとめる」「ハイライト」
+              「一番良いテイク」「色を自動補正」「音量を揃えて」「字幕を作って」に対応します。
+              自由な文章での指示にはAPIプロバイダの設定が必要です。
             </p>
           )}
         </section>
 
         <section className="mb-4">
           <h3 className="mb-2 border-b border-border pb-1 text-2xs uppercase tracking-wider text-text-secondary">
-            音声認識（ローカル）
+            音声認識
           </h3>
+
+          {isTauri() ? null : (
+            <>
+              <Row label="モデル">
+                <select
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-xs outline-none"
+                  value={draft.speech.model || DEFAULT_SPEECH_MODEL}
+                  onChange={(event) =>
+                    patch({ speech: { ...draft.speech, model: event.target.value } })
+                  }
+                >
+                  {SPEECH_MODELS.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+              <Row label="言語">
+                <select
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-xs outline-none"
+                  value={draft.speech.language || "ja"}
+                  onChange={(event) =>
+                    patch({ speech: { ...draft.speech, language: event.target.value } })
+                  }
+                >
+                  <option value="ja">日本語</option>
+                  <option value="en">英語</option>
+                  <option value="auto">自動判定</option>
+                </select>
+              </Row>
+              <p className="mt-1 text-2xs leading-relaxed text-text-muted">
+                ブラウザ内で動作します。APIキーは不要です。
+                初回のみモデルのダウンロードが発生し、以降はブラウザに保存されます。
+              </p>
+            </>
+          )}
+
+          {isTauri() ? (
+          <>
           <Row label="実行ファイル">
             <input
               className="w-full rounded border border-border bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
@@ -111,6 +158,8 @@ export function SettingsDialog() {
             SRTを出力するwhisper.cpp系の実行ファイルに対応します。未設定の場合は
             OpenAI互換APIでの文字起こしを使用します。
           </p>
+          </>
+          ) : null}
         </section>
 
         <section className="mb-4">

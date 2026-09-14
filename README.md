@@ -72,6 +72,7 @@ GitHub Pagesへ公開する場合は、**Settings → Pages → Source** を
 | シーン検出 | 輝度ヒストグラムの差分 |
 | トラッキング | Canvasピクセル上の正規化相互相関 |
 | 書き出し | WebCodecs（MP4、非対応時はWebM） |
+| 音声認識 | Whisper（transformers.js・ブラウザ内で実行） |
 
 制限は [docs/USAGE.md](docs/USAGE.md) を参照。
 

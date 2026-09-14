@@ -23,6 +23,7 @@ import * as frames from "@/features/web/frames";
 import * as tracker from "@/features/web/tracking";
 import { exportSequence, isSupported as canExport } from "@/features/web/exporter";
 import { detectScenes } from "@/features/web/scenes";
+import * as speech from "@/features/web/speech";
 
 const SETTINGS_KEY = "ai-video-editor:settings";
 const PROJECT_KEY = "ai-video-editor:project";
@@ -223,10 +224,58 @@ export const webBackend: Backend = {
     return mediaId;
   },
 
-  async transcribeAudio() {
-    throw new Error(
-      "ブラウザ版のローカル音声認識には対応していません。設定でAPIプロバイダを指定してください。",
-    );
+  async transcribeAudio(mediaId) {
+    const blob = await store.getFile(mediaId);
+    if (!blob) throw new Error("素材が見つかりません");
+
+    const settings = await this.loadSettings();
+    const jobId = createId("job");
+
+    publish({
+      id: jobId,
+      type: "transcription",
+      status: "running",
+      progress: 0,
+      label: "音声認識",
+      mediaId,
+    });
+
+    try {
+      const segments = await speech.transcribeInBrowser(blob, {
+        modelId: settings.speech.model || undefined,
+        language: settings.speech.language,
+        onProgress: ({ stage, progress }) =>
+          publish({
+            id: jobId,
+            type: "transcription",
+            status: "running",
+            progress: progress ?? 0,
+            label: stage,
+            mediaId,
+          }),
+      });
+
+      publish({
+        id: jobId,
+        type: "transcription",
+        status: "completed",
+        progress: 1,
+        label: "音声認識が完了しました",
+        mediaId,
+      });
+      return segments;
+    } catch (error) {
+      publish({
+        id: jobId,
+        type: "transcription",
+        status: "failed",
+        progress: 0,
+        label: "音声認識",
+        mediaId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   },
 
   async saveTranscript(mediaId, segments) {

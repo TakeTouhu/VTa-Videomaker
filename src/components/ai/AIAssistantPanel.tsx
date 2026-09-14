@@ -114,9 +114,9 @@ export function AIAssistantPanel({ className }: AIAssistantPanelProps) {
                 {suggestion}
               </button>
             ))}
-            <p className="pt-1 text-text-muted">
+            <p className="pt-1 leading-relaxed text-text-muted">
               {provider === "local"
-                ? "ローカルモード: 上記の指示に対応します。自由な指示にはAPIプロバイダの設定が必要です。"
+                ? "上記はすべてブラウザ内で処理され、APIキーは不要です。文字起こしが必要な指示では、初回のみモデルのダウンロードが発生します。"
                 : "自由な指示を入力できます。"}
             </p>
           </div>

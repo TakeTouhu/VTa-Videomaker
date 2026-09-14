@@ -1,0 +1,13 @@
+[package]
+name = "ave-core"
+description = "Editing core: FFmpeg control, timeline model, render engine, media cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+dirs.workspace = true

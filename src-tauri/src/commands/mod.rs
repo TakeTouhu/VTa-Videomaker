@@ -1,0 +1,569 @@
+//! Tauri command surface: the IPC boundary the front end calls.
+//!
+//! Commands stay thin - they validate inputs, hand off to a core module, and
+//! translate errors. No FFmpeg command line is built here.
+
+use crate::AppState;
+use ave_core::ai::{
+    multicam, scene, silence, stats, tracking, transcribe, vision, Loudness, MediaAnalysis,
+    TranscriptSegment,
+};
+use ave_core::cache;
+use ave_core::error::CoreError;
+use ave_core::ffmpeg::{audio, probe, proxy, thumbnail, waveform};
+use ave_core::jobs::{BackgroundJob, JobStatus};
+use ave_core::media::{self, MediaItem};
+use ave_core::project;
+use ave_core::render::{self, ExportSettings};
+use ave_core::settings::{self, AppSettings};
+use ave_core::timeline::Sequence;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use tauri::{Emitter, Manager, State};
+use uuid::Uuid;
+
+type CommandResult<T> = Result<T, CoreError>;
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+#[tauri::command]
+pub fn probe_media(path: String) -> CommandResult<probe::MediaProbe> {
+    probe::probe(Path::new(&path))
+}
+
+#[tauri::command]
+pub fn import_media(paths: Vec<String>, state: State<AppState>) -> CommandResult<Vec<MediaItem>> {
+    let mut items = Vec::new();
+    for path in paths {
+        let item = media::import(Path::new(&path), format!("media_{}", Uuid::new_v4()), now())?;
+        state.media.insert(item.clone());
+        items.push(item);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn generate_thumbnail(
+    media_id: String,
+    at_seconds: f64,
+    state: State<AppState>,
+) -> CommandResult<String> {
+    let item = state
+        .media
+        .get(&media_id)
+        .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?;
+
+    let destination = cache::thumbnail_path(&media_id)?;
+    if destination.exists() {
+        return Ok(destination.display().to_string());
+    }
+
+    let path = thumbnail::generate(Path::new(&item.source_path), &destination, at_seconds)?;
+    state.media.update(&media_id, |item| {
+        item.thumbnail_path = Some(path.display().to_string());
+    });
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub async fn generate_proxy(media_id: String, app: tauri::AppHandle) -> CommandResult<String> {
+    let state = app.state::<AppState>();
+    let item = state
+        .media
+        .get(&media_id)
+        .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?;
+
+    let destination = cache::proxy_path(&media_id)?;
+    if destination.exists() {
+        return Ok(destination.display().to_string());
+    }
+
+    let job_id = format!("job_{}", Uuid::new_v4());
+    let mut job = BackgroundJob::new(job_id.clone(), "proxy", format!("Proxy: {}", item.name));
+    job.media_id = Some(media_id.clone());
+    job.status = JobStatus::Running;
+    state.jobs.insert(job.clone());
+    let _ = app.emit("job://update", &job);
+
+    let source = PathBuf::from(&item.source_path);
+    let result =
+        tauri::async_runtime::spawn_blocking(move || proxy::generate(&source, &destination))
+            .await
+            .map_err(|error| CoreError::Other(error.to_string()))?;
+
+    let state = app.state::<AppState>();
+    match result {
+        Ok(path) => {
+            let value = path.display().to_string();
+            state.media.update(&media_id, |item| {
+                item.proxy_path = Some(value.clone());
+            });
+            if let Some(job) = state.jobs.update(&job_id, |job| {
+                job.status = JobStatus::Completed;
+                job.progress = 1.0;
+            }) {
+                let _ = app.emit("job://update", &job);
+            }
+            Ok(value)
+        }
+        Err(error) => {
+            if let Some(job) = state.jobs.update(&job_id, |job| {
+                job.status = JobStatus::Failed;
+                job.error = Some(error.to_string());
+            }) {
+                let _ = app.emit("job://update", &job);
+            }
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn generate_waveform(media_id: String, app: tauri::AppHandle) -> CommandResult<Vec<f32>> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    // Waveforms are expensive to extract and never change, so they are cached.
+    let cache_path = cache::waveform_path(&media_id)?;
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if let Ok(peaks) = serde_json::from_slice::<Vec<f32>>(&bytes) {
+            return Ok(peaks);
+        }
+    }
+
+    let source = PathBuf::from(&item.source_path);
+    let duration = item.duration;
+    let peaks = tauri::async_runtime::spawn_blocking(move || waveform::generate(&source, duration))
+        .await
+        .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    let _ = std::fs::write(&cache_path, serde_json::to_vec(&peaks)?);
+    Ok(peaks)
+}
+
+#[tauri::command]
+pub fn save_project(project: Value, path: Option<String>) -> CommandResult<String> {
+    let directory = match path.as_deref() {
+        Some(existing) => PathBuf::from(existing)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| default_project_dir(&project)),
+        None => default_project_dir(&project),
+    };
+
+    let saved = project::save(&project, &directory)?;
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    // A failed backup must not fail the save itself.
+    let _ = project::write_autosave(&project, &directory, &stamp);
+    Ok(saved.display().to_string())
+}
+
+fn default_project_dir(project: &Value) -> PathBuf {
+    let name = project
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled Project");
+    let sanitized: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+
+    dirs::document_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("AI Video Editor")
+        .join(sanitized)
+}
+
+#[tauri::command]
+pub fn load_project(path: String) -> CommandResult<Value> {
+    project::load(Path::new(&path))
+}
+
+#[tauri::command]
+pub fn list_recent_projects() -> CommandResult<Vec<Value>> {
+    let root = dirs::document_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("AI Video Editor");
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut recents = Vec::new();
+    for entry in std::fs::read_dir(&root)?.flatten() {
+        let file = entry.path().join(project::PROJECT_FILE);
+        if !file.exists() {
+            continue;
+        }
+        if let Ok(value) = project::load(&file) {
+            recents.push(serde_json::json!({
+                "id": value.get("id").cloned().unwrap_or(Value::Null),
+                "name": value.get("name").cloned().unwrap_or(Value::Null),
+                "path": file.display().to_string(),
+                "createdAt": value.get("createdAt").cloned().unwrap_or(Value::Null),
+                "modifiedAt": value.get("updatedAt").cloned().unwrap_or(Value::Null),
+            }));
+        }
+    }
+    Ok(recents)
+}
+
+/// Options for `analyze_media`, mirroring the TypeScript `AnalyzeOptions`.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeOptions {
+    #[serde(default)]
+    pub scenes: bool,
+    #[serde(default)]
+    pub silence_noise_db: Option<f64>,
+    #[serde(default)]
+    pub silence_min_seconds: Option<f64>,
+    /// Measure picture and loudness statistics for AI correction.
+    #[serde(default)]
+    pub statistics: bool,
+    /// Run the configured object detector over sampled frames.
+    #[serde(default)]
+    pub detect: bool,
+    /// Seconds between sampled frames when detecting.
+    #[serde(default)]
+    pub detect_interval: Option<f64>,
+}
+
+#[tauri::command]
+pub async fn analyze_media(
+    media_id: String,
+    options: Option<AnalyzeOptions>,
+    app: tauri::AppHandle,
+) -> CommandResult<MediaAnalysis> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    let options = options.unwrap_or_default();
+    let source = PathBuf::from(&item.source_path);
+    let noise = options
+        .silence_noise_db
+        .unwrap_or(silence::DEFAULT_NOISE_DB);
+    let min = options
+        .silence_min_seconds
+        .unwrap_or(silence::DEFAULT_MIN_DURATION);
+    let want_scenes = options.scenes;
+
+    let want_statistics = options.statistics;
+    let want_detect = options.detect;
+    let detect_interval = options.detect_interval.unwrap_or(2.0).max(0.2);
+    let detector = settings::load().detector_binary;
+    let media_key = media_id.clone();
+
+    let analysis_source = source.clone();
+    let measured = tauri::async_runtime::spawn_blocking(move || {
+        let silences = silence::detect(&analysis_source, noise, min)?;
+
+        let scenes = if want_scenes {
+            scene::detect(&analysis_source, scene::DEFAULT_THRESHOLD)?
+        } else {
+            Vec::new()
+        };
+
+        // Statistics drive AI colour and audio correction. A failure here is
+        // not fatal: the rest of the analysis is still useful.
+        let (frame_stats, loudness) = if want_statistics {
+            let picture = stats::measure_video(&analysis_source, 0.5).ok();
+            let audio_levels = audio::measure_loudness(&analysis_source).ok().map(
+                |(integrated_lufs, true_peak_db)| Loudness {
+                    integrated_lufs,
+                    true_peak_db,
+                },
+            );
+            (picture, audio_levels)
+        } else {
+            (None, None)
+        };
+
+        let detections = if want_detect && !detector.trim().is_empty() {
+            detect_frames(&analysis_source, &media_key, &detector, detect_interval)?
+        } else {
+            Vec::new()
+        };
+
+        Ok::<_, CoreError>((silences, scenes, frame_stats, loudness, detections))
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    let (silences, scenes, frame_stats, loudness, detections) = measured;
+
+    // A transcript produced earlier (locally or by a hosted provider) is cached
+    // on disk, so re-analysing does not throw it away.
+    let transcript = read_cached_transcript(&media_id);
+
+    Ok(MediaAnalysis {
+        media_id,
+        transcript,
+        silences,
+        scenes,
+        detections,
+        descriptions: Vec::new(),
+        frame_stats,
+        loudness,
+        analyzed_at: now(),
+    })
+}
+
+/// Samples frames and runs the configured detector over each of them.
+fn detect_frames(
+    source: &Path,
+    media_id: &str,
+    detector: &str,
+    interval: f64,
+) -> Result<Vec<vision::FrameDetections>, CoreError> {
+    let directory = cache::subdirectory("frames")?.join(media_id);
+    let keyframes = vision::extract_keyframes(source, &directory, interval, 640)?;
+
+    let mut frames = Vec::with_capacity(keyframes.len());
+    for keyframe in keyframes {
+        // One bad frame must not lose the whole pass.
+        let detections =
+            vision::detect_in_frame(detector, Path::new(&keyframe.path)).unwrap_or_default();
+        frames.push(vision::FrameDetections {
+            time: keyframe.time,
+            detections,
+        });
+    }
+    Ok(frames)
+}
+
+fn read_cached_transcript(media_id: &str) -> Vec<TranscriptSegment> {
+    cache::transcript_path(media_id)
+        .ok()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Extracts a speech-ready WAV for the given media and returns its path.
+#[tauri::command]
+pub async fn extract_audio(media_id: String, app: tauri::AppHandle) -> CommandResult<String> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    let destination = cache::subdirectory("audio")?.join(format!("{media_id}.wav"));
+    if destination.exists() {
+        return Ok(destination.display().to_string());
+    }
+
+    let source = PathBuf::from(&item.source_path);
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        audio::extract_for_speech(&source, &destination)
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))??;
+
+    Ok(path.display().to_string())
+}
+
+/// Runs the locally configured speech engine over an extracted WAV.
+#[tauri::command]
+pub async fn transcribe_audio(audio_path: String) -> CommandResult<Vec<TranscriptSegment>> {
+    let configured = settings::load().speech;
+    if !configured.is_configured() {
+        return Err(CoreError::Other(
+            "ローカル音声認識エンジンが設定されていません。設定画面で実行ファイルとモデルを指定してください。"
+                .into(),
+        ));
+    }
+
+    let engine = transcribe::LocalEngine {
+        binary: configured.binary,
+        model: configured.model,
+        language: configured.language,
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        transcribe::transcribe_local(&engine, Path::new(&audio_path))
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
+}
+
+/// Persists a transcript produced by a hosted provider.
+#[tauri::command]
+pub fn save_transcript(media_id: String, segments: Vec<TranscriptSegment>) -> CommandResult<()> {
+    let path = cache::transcript_path(&media_id)?;
+    std::fs::write(path, serde_json::to_vec(&segments)?)?;
+    Ok(())
+}
+
+/// Tracks a normalised region through a clip (design doc section 17).
+#[tauri::command]
+pub async fn track_mask(
+    media_id: String,
+    start_seconds: f64,
+    duration_seconds: f64,
+    region: (f64, f64, f64, f64),
+    app: tauri::AppHandle,
+) -> CommandResult<Vec<tracking::TrackSample>> {
+    let item = {
+        let state = app.state::<AppState>();
+        state
+            .media
+            .get(&media_id)
+            .ok_or_else(|| CoreError::Other(format!("unknown media: {media_id}")))?
+    };
+
+    // Proxies are fine here: tracking runs on a downscaled grayscale strip.
+    let source = PathBuf::from(item.proxy_path.as_ref().unwrap_or(&item.source_path));
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let frames = tracking::decode_frames(&source, start_seconds, duration_seconds)?;
+        Ok::<_, CoreError>(tracking::track_region(&frames, region))
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
+}
+
+/// Aligns camera angles by cross-correlating their audio (section 58).
+#[tauri::command]
+pub async fn sync_multicam(
+    media_ids: Vec<String>,
+    app: tauri::AppHandle,
+) -> CommandResult<Vec<multicam::AngleSync>> {
+    let items: Vec<(String, PathBuf, f64)> = {
+        let state = app.state::<AppState>();
+        media_ids
+            .iter()
+            .filter_map(|id| {
+                state.media.get(id).map(|item| {
+                    (
+                        item.id.clone(),
+                        PathBuf::from(&item.source_path),
+                        item.duration,
+                    )
+                })
+            })
+            .collect()
+    };
+
+    if items.len() < 2 {
+        return Err(CoreError::Other(
+            "同期には2つ以上のアングルが必要です".into(),
+        ));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let borrowed: Vec<(String, &Path, f64)> = items
+            .iter()
+            .map(|(id, path, duration)| (id.clone(), path.as_path(), *duration))
+            .collect();
+        multicam::synchronise(&borrowed)
+    })
+    .await
+    .map_err(|error| CoreError::Other(error.to_string()))?
+}
+
+#[tauri::command]
+pub fn load_settings() -> CommandResult<AppSettings> {
+    Ok(settings::redacted(&settings::load()))
+}
+
+#[tauri::command]
+pub fn save_settings(patch: AppSettings) -> CommandResult<()> {
+    let mut current = settings::load();
+    // A redacted key coming back from the UI means "leave it as it was".
+    let key = if patch.ai_api_key == "********" {
+        current.ai_api_key.clone()
+    } else {
+        patch.ai_api_key.clone()
+    };
+
+    current = AppSettings {
+        ai_api_key: key,
+        ..patch
+    };
+    settings::save(&current)
+}
+
+/// The API key, read only when a request is actually about to be made.
+#[tauri::command]
+pub fn resolve_api_key() -> CommandResult<String> {
+    Ok(settings::load().ai_api_key)
+}
+
+#[tauri::command]
+pub async fn start_export(
+    sequence: Sequence,
+    settings: ExportSettings,
+    app: tauri::AppHandle,
+) -> CommandResult<String> {
+    ave_core::filesystem::ensure_writable(Path::new(&settings.output_path))?;
+
+    let job_id = format!("job_{}", Uuid::new_v4());
+    let (cancel, media_paths) = {
+        let state = app.state::<AppState>();
+        let mut job = BackgroundJob::new(job_id.clone(), "export", "Export".to_string());
+        job.status = JobStatus::Running;
+        let cancel = state.jobs.insert(job.clone());
+        let _ = app.emit("job://update", &job);
+        (cancel, state.media.source_paths())
+    };
+
+    let handle = app.clone();
+    let id = job_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let progress_handle = handle.clone();
+        let progress_id = id.clone();
+
+        let result = render::export(&sequence, &settings, &media_paths, cancel, |progress| {
+            let state = progress_handle.state::<AppState>();
+            if let Some(job) = state
+                .jobs
+                .update(&progress_id, |job| job.progress = progress)
+            {
+                let _ = progress_handle.emit("job://update", &job);
+            }
+        });
+
+        let state = handle.state::<AppState>();
+        let updated = state.jobs.update(&id, |job| match &result {
+            Ok(_) => {
+                job.status = JobStatus::Completed;
+                job.progress = 1.0;
+            }
+            Err(error) => {
+                job.status = JobStatus::Failed;
+                job.error = Some(error.to_string());
+            }
+        });
+        if let Some(job) = updated {
+            let _ = handle.emit("job://update", &job);
+        }
+    });
+
+    Ok(job_id)
+}
+
+#[tauri::command]
+pub fn cancel_job(job_id: String, state: State<AppState>) -> CommandResult<()> {
+    state.jobs.cancel(&job_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_jobs(state: State<AppState>) -> CommandResult<Vec<BackgroundJob>> {
+    Ok(state.jobs.list())
+}

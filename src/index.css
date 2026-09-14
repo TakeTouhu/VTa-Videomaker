@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans text-[13px] antialiased;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded bg-border;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-strong;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-panel;
+  }
+
+  .panel-header {
+    @apply flex h-8 shrink-0 items-center justify-between border-b border-border bg-panel-alt px-2 text-2xs font-medium uppercase tracking-wider text-text-secondary;
+  }
+
+  .field-label {
+    @apply text-2xs uppercase tracking-wide text-text-secondary;
+  }
+
+  .num-input {
+    @apply w-full rounded border border-border bg-bg px-1.5 py-1 text-right font-mono text-xs text-text outline-none focus:border-accent;
+  }
+
+  .toolbar-button {
+    @apply flex h-7 items-center gap-1 rounded border border-transparent px-2 text-xs text-text-secondary hover:bg-border/40 hover:text-text;
+  }
+
+  .toolbar-button-active {
+    @apply border-accent/60 bg-accent-muted text-accent;
+  }
+}

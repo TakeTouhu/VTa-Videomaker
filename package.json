@@ -1,0 +1,49 @@
+{
+  "name": "ai-video-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI First Video Editor - timeline based desktop video editing with an AI edit-plan workflow",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "predev": "node scripts/check-setup.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/check-setup.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "icons": "node scripts/generate-icons.mjs",
+    "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
+    "build:exe": "tauri build"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
+    "@tauri-apps/plugin-fs": "^2.2.0",
+    "clsx": "^2.1.1",
+    "mp4-muxer": "^5.2.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "webm-muxer": "^5.1.4",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5"
+  }
+}

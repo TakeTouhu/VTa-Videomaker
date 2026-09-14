@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useUIStore } from "@/store/uiStore";
 import {
   FPS_PRESETS,
@@ -9,6 +9,7 @@ import {
 } from "@/services/exportService";
 import type { ExportSettings } from "@/services/backend";
 import { useEditorStore } from "@/store/editorStore";
+import { isTauri } from "@/services/backend";
 import { sequenceDuration } from "@/features/timeline/engine";
 import { formatDuration } from "@/utils/time";
 
@@ -19,6 +20,36 @@ export function ExportDialog() {
   const jobs = useUIStore((state) => state.jobs);
   const [settings, setSettings] = useState<ExportSettings>(defaultExportSettings);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [format, setFormat] = useState<string | null>(null);
+
+  // In the browser the container depends on which codecs this browser can
+  // encode, so the dialog reports what will actually come out rather than
+  // promising MP4 and delivering something else.
+  useEffect(() => {
+    if (isTauri()) return;
+    let cancelled = false;
+
+    void import("@/features/web/exporter")
+      .then((module) =>
+        module.pickEncoderPlan(settings.width, settings.height, settings.fps, 20_000_000),
+      )
+      .then((plan) => {
+        if (!cancelled) {
+          setFormat(
+            plan.container === "mp4"
+              ? "MP4 (H.264 / AAC)"
+              : `WebM (${plan.muxerVideoCodec.toUpperCase()} / Opus)`,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setFormat(error instanceof Error ? error.message : "利用できません");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.width, settings.height, settings.fps]);
 
   const job = jobs.find((entry) => entry.id === jobId);
   const patch = (value: Partial<ExportSettings>) =>
@@ -30,19 +61,22 @@ export function ExportDialog() {
         <h2 className="mb-3 text-sm font-semibold">Export</h2>
 
         <div className="space-y-2 text-xs">
-          <Row label="Output">
+          <Row label={isTauri() ? "Output" : "ファイル名"}>
             <input
               className="w-full rounded border border-border bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
-              placeholder="C:\\Videos\\output.mp4"
+              placeholder={isTauri() ? "C:\\Videos\\output.mp4" : "output.mp4"}
               value={settings.outputPath}
               onChange={(event) => patch({ outputPath: event.target.value })}
             />
           </Row>
 
           <Row label="Format">
-            <span className="text-text-secondary">MP4</span>
+            <span className="text-text-secondary">
+              {isTauri() ? "MP4" : (format ?? "判定中…")}
+            </span>
           </Row>
 
+          {isTauri() ? (
           <Row label="Codec">
             <select
               className="rounded border border-border bg-bg px-2 py-1 outline-none"
@@ -55,6 +89,7 @@ export function ExportDialog() {
               <option value="h265">H.265</option>
             </select>
           </Row>
+          ) : null}
 
           <Row label="Resolution">
             <select
@@ -116,6 +151,7 @@ export function ExportDialog() {
             </Row>
           ) : null}
 
+          {isTauri() ? (
           <Row label="GPU">
             <select
               className="rounded border border-border bg-bg px-2 py-1 outline-none"
@@ -135,6 +171,7 @@ export function ExportDialog() {
               <option value="videoToolbox">Apple VideoToolbox</option>
             </select>
           </Row>
+          ) : null}
 
           <Row label="Duration">
             <span className="font-mono text-text-secondary">

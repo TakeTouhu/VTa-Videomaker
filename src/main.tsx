@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { isTauri, setBackend } from "@/services/backend";
-import { mockBackend } from "@/services/mockBackend";
+import { webBackend } from "@/services/webBackend";
 
 async function bootstrap() {
   if (isTauri()) {
@@ -11,7 +11,7 @@ async function bootstrap() {
     const { tauriBackend } = await import("@/services/tauriBackend");
     setBackend(tauriBackend);
   } else {
-    setBackend(mockBackend);
+    setBackend(webBackend);
   }
 
   const root = document.getElementById("root");

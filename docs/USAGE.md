@@ -1,6 +1,52 @@
 # 使い方
 
-## 1. 必要なもの
+## 0. Web版（インストール不要）
+
+ブラウザだけで動きます。FFmpegもインストールも不要です。
+
+リポジトリの **Settings → Pages → Source** を「GitHub Actions」にして
+mainブランチへpushすると、次のURLで公開されます。
+
+```
+https://taketouhu.github.io/VTa-Videomaker/
+```
+
+手元で試す場合は次のとおりです。
+
+```bash
+npm install
+npm run dev
+```
+
+### Web版でできること
+
+| 機能 | 状態 |
+| --- | --- |
+| 素材の取り込み（ドラッグ＆ドロップ） | ○ |
+| サムネイル・波形の生成 | ○ |
+| タイムライン編集すべて | ○ |
+| 色調整・エフェクト・マスク・キーフレーム | ○ |
+| 無音検出・シーン検出 | ○ |
+| トラッキング・マルチカム同期 | ○ |
+| 書き出し | ○（WebCodecs） |
+| 文字起こし・自然言語指示 | ○（APIキーの設定が必要） |
+| ローカル音声認識エンジン | ×（デスクトップ版のみ） |
+| プロキシ生成 | ×（原本を直接再生します） |
+
+### Web版の注意点
+
+- **書き出しにはWebCodecs対応ブラウザが必要**です。Chrome、Edge、
+  Safari 16.4以降で動作します。Firefoxは未対応です。
+- **出力形式はブラウザによって変わります**。H.264が使えるブラウザでは
+  MP4、使えない場合はWebM（VP9 / Opus）になります。書き出し画面に
+  どちらになるか表示されます。
+- **素材はブラウザ内（IndexedDB）に保存**されます。同じブラウザなら
+  再読み込みしても消えませんが、閲覧データを消すと失われます。
+- 長い動画の書き出しには時間がかかります。進捗はステータスバーに出ます。
+
+---
+
+## 1. デスクトップ版に必要なもの
 
 **でき上がった exe を使うだけなら、必要なのは FFmpeg だけです**
 （FFmpeg同梱ビルドを使う場合はそれも不要）。Windows 11なら
@@ -67,10 +113,13 @@ npm run build:exe
 でき上がるのは次の場所です。
 
 ```
-targeteleaseundle
+target
+eleaseundle
 sis\AI Video Editor_0.1.0_x64-setup.exe
-targeteleaseundle\msi\AI Video Editor_0.1.0_x64_ja-JP.msi
-targeteleasei-video-editor.exe
+target
+eleaseundle\msi\AI Video Editor_0.1.0_x64_ja-JP.msi
+target
+eleasei-video-editor.exe
 ```
 
 > **FFmpeg同梱について**: 一般的なFFmpegの配布ビルドはGPLです。同梱して

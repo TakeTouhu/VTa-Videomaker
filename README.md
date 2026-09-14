@@ -47,6 +47,29 @@ docs/                アーキテクチャ・ロードマップ・UIガイドラ
 Rustコアを独立クレートに分離しているため、GUIツールキットを入れずに
 `cargo test -p ave-core` が任意のプラットフォームで通る。
 
+## Web版（インストール不要）
+
+ブラウザだけで動きます。FFmpegもRustも不要です。
+
+```bash
+npm install && npm run dev
+```
+
+GitHub Pagesへ公開する場合は、**Settings → Pages → Source** を
+「GitHub Actions」にしてmainへpushしてください。
+
+ブラウザ版では、デスクトップ版がFFmpegに任せている処理をWeb APIで行います。
+
+| 処理 | ブラウザでの実装 |
+| --- | --- |
+| サムネイル | 動画をシークしてCanvasへ描画 |
+| 波形・無音検出・ラウドネス | Web Audio API |
+| シーン検出 | 輝度ヒストグラムの差分 |
+| トラッキング | Canvasピクセル上の正規化相互相関 |
+| 書き出し | WebCodecs（MP4、非対応時はWebM） |
+
+制限は [docs/USAGE.md](docs/USAGE.md) を参照。
+
 ## Windows向けexeの作成
 
 GitHubの **Actions** タブから **Build Windows** を実行すると、

@@ -4,7 +4,7 @@
  */
 
 import { backend, isTauri } from "./backend";
-import { registerBrowserFile } from "./mockBackend";
+import { registerBrowserFile } from "./webBackend";
 import { useEditorStore } from "@/store/editorStore";
 import { useUIStore } from "@/store/uiStore";
 import { appError, userMessage } from "@/types/errors";

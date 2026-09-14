@@ -4,7 +4,7 @@
  * entirely the Rust core's job.
  */
 
-import { backend } from "./backend";
+import { backend, isTauri } from "./backend";
 import type { ExportSettings } from "./backend";
 import { useEditorStore } from "@/store/editorStore";
 import { useUIStore } from "@/store/uiStore";
@@ -26,9 +26,14 @@ export const QUALITY_BITRATES: Record<"low" | "medium" | "high", number> = {
 };
 
 export function defaultExportSettings(): ExportSettings {
-  const sequence = useEditorStore.getState().sequence();
+  const state = useEditorStore.getState();
+  const sequence = state.sequence();
+  // In the browser the output is a download name, not a path, so it always
+  // starts filled in - there is nothing for the user to browse to.
+  const safeName = state.project.name.replace(/[\\/:*?"<>|]/g, "_").trim() || "output";
+
   return {
-    outputPath: "",
+    outputPath: isTauri() ? "" : `${safeName}.mp4`,
     format: "mp4",
     codec: "h264",
     width: sequence.width,

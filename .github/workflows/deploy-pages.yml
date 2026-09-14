@@ -1,0 +1,63 @@
+name: Deploy Web
+
+# Publishes the browser version to GitHub Pages.
+#
+# Enable it once under Settings → Pages → Source → "GitHub Actions", then this
+# runs on every push to the default branch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A newer deploy supersedes one already in flight rather than queueing behind.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and test
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build
+        env:
+          # Project pages live under /<repo>/, so assets need that prefix.
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+        run: npx vite build
+
+      # Without this a reload on any path 404s, because Pages has no router.
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

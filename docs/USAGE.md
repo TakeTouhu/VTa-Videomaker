@@ -11,12 +11,62 @@ mainブランチへpushすると、次のURLで公開されます。
 https://taketouhu.github.io/VTa-Videomaker/
 ```
 
-手元で試す場合は次のとおりです。
+### 手元で動かす手順（Windows）
 
-```bash
+**1. Node.js を入れる**
+
+[nodejs.org](https://nodejs.org/) から **LTS版** をダウンロードし、
+インストーラを実行します。設定はすべて既定のままで構いません。
+インストール後、PCを一度再起動すると確実です。
+
+**2. コードをダウンロードする**
+
+下のリンクからZIPをダウンロードし、展開します。
+
+<https://github.com/TakeTouhu/VTa-Videomaker/archive/refs/heads/claude/ai-video-editor-design-dy0skr.zip>
+
+展開すると `VTa-Videomaker-claude-ai-video-editor-design-dy0skr` という
+フォルダができます。デスクトップなど分かりやすい場所に置いてください。
+
+**3. そのフォルダでターミナルを開く**
+
+展開したフォルダを開き、**アドレスバーに `powershell` と入力して Enter** を
+押します。そのフォルダの場所でPowerShellが開きます。
+
+（フォルダ内の何もない場所を Shift + 右クリック →
+「PowerShell ウィンドウをここで開く」でも同じです）
+
+**4. コマンドを実行する**
+
+開いた黒い画面に次を貼り付けて Enter。初回は数分かかります。
+
+```powershell
 npm install
+```
+
+終わったら続けて次を実行します。
+
+```powershell
 npm run dev
 ```
+
+`Local: http://localhost:1420/` と表示されたら成功です。
+
+**5. ブラウザで開く**
+
+Chrome か Edge で <http://localhost:1420/> を開きます。
+
+終了するときは、黒い画面で `Ctrl + C` を押します。
+次回からは手順3・4の `npm run dev` だけでかまいません（`npm install` は初回のみ）。
+
+#### うまくいかないとき
+
+| 表示されたもの | 対処 |
+| --- | --- |
+| `npm : 用語 ... 認識されません` | Node.jsが未インストールか、再起動していません |
+| `EACCES` / `permission denied` | フォルダをデスクトップなど権限のある場所へ移してください |
+| `Port 1420 is in use` | 既に起動しています。ブラウザで開くだけでOKです |
+| 真っ白な画面 | Chrome か Edge で開いてください（Firefoxは書き出し非対応） |
 
 ### Web版でできること
 

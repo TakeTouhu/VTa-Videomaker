@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "AI First Video Editor - timeline based desktop video editing with an AI edit-plan workflow",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

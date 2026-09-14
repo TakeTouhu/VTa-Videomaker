@@ -8,7 +8,9 @@
     "node": ">=18"
   },
   "scripts": {
+    "predev": "node scripts/check-setup.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/check-setup.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",

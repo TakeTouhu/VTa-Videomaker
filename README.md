@@ -47,10 +47,26 @@ docs/                アーキテクチャ・ロードマップ・UIガイドラ
 Rustコアを独立クレートに分離しているため、GUIツールキットを入れずに
 `cargo test -p ave-core` が任意のプラットフォームで通る。
 
+## Windows向けexeの作成
+
+GitHubの **Actions** タブから **Build Windows** を実行すると、
+インストーラと実行ファイルがArtifactsとして手に入ります。環境構築は不要です。
+
+手元でビルドする場合:
+
+```bash
+npm install
+npm run fetch-ffmpeg   # FFmpegを同梱する場合のみ（任意）
+npm run build:exe
+```
+
+`target/release/bundle/nsis/` にインストーラが出力されます。
+詳しい手順は [docs/USAGE.md](docs/USAGE.md) を参照。
+
 ## 開発
 
 前提: Node.js 18+, Rust 1.77+, FFmpeg（`ffmpeg` / `ffprobe` がPATH上、
-または実行ファイルの隣の `bin/` に配置）。
+アプリに同梱、または実行ファイルの隣の `bin/` に配置）。
 
 ```bash
 npm install
@@ -60,6 +76,7 @@ npm run tauri dev    # デスクトップアプリとして起動（FFmpeg必要
 
 npm test             # フロントエンドのテスト
 npm run typecheck    # tsc --noEmit
+npm run icons        # アプリアイコンを再生成
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check

@@ -5,6 +5,7 @@ pub mod commands;
 
 use ave_core::jobs::JobRegistry;
 use ave_core::media::MediaRegistry;
+use tauri::Manager;
 
 /// Process-wide state shared by every command.
 #[derive(Default)]
@@ -19,6 +20,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::default())
+        .setup(|app| {
+            // Point the core at the FFmpeg shipped with the app, if any. The
+            // resource directory differs per platform, so only the shell can
+            // work it out.
+            if let Ok(resources) = app.path().resource_dir() {
+                ave_core::ffmpeg::set_bundled_dir(resources.join("bin"));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::probe_media,
             commands::import_media,

@@ -12,6 +12,10 @@ dist-ssr/
 src-tauri/target/
 src-tauri/gen/
 
+# Bundled FFmpeg binaries: fetched at build time, never committed
+src-tauri/bin/*
+!src-tauri/bin/README.txt
+
 # App runtime data
 logs/
 cache/

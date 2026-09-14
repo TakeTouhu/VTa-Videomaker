@@ -51,6 +51,11 @@ Rustコアを独立クレートに分離しているため、GUIツールキッ�
 
 ブラウザだけで動きます。FFmpegもRustも不要です。
 
+Windowsは `start-windows.bat`、Mac / Linuxは `start-mac-linux.sh` を
+実行すれば、セットアップから起動まで自動で行います。
+
+コマンドで実行する場合:
+
 ```bash
 npm install && npm run dev
 ```

@@ -19,80 +19,59 @@ https://taketouhu.github.io/VTa-Videomaker/
 インストーラを実行します。設定はすべて既定のままで構いません。
 インストール後、PCを一度再起動すると確実です。
 
-**2. コードをダウンロードする**
-
-下のリンクからZIPをダウンロードし、展開します。
+**2. コードをダウンロードして展開する**
 
 <https://github.com/TakeTouhu/VTa-Videomaker/archive/refs/heads/claude/ai-video-editor-design-dy0skr.zip>
 
-展開すると `VTa-Videomaker-claude-ai-video-editor-design-dy0skr` という
-フォルダができます。デスクトップなど分かりやすい場所に置いてください。
+ZIPを右クリック →「すべて展開」で展開します。
 
-**3. そのフォルダでターミナルを開く**
+> **注意**: Windowsの「すべて展開」は、ZIPと同じ名前のフォルダを作ってから
+> 中身を出します。ZIPの中にも同名のフォルダが入っているため、
+> **フォルダが二重になります**。
+>
+> ```
+> VTa-Videomaker-claude-ai-video-editor-design-dy0skr\   ← Windowsが作った箱
+>     VTa-Videomaker-claude-ai-video-editor-design-dy0skr\   ← 本体
+>         start-windows.bat
+>         package.json
+> ```
+>
+> 作業するのは **`package.json` があるほうのフォルダ** です。
 
-展開したフォルダを開き、**アドレスバーに `powershell` と入力して Enter** を
-押します。そのフォルダの場所でPowerShellが開きます。
+**3. `start-windows.bat` をダブルクリックする**
 
-（フォルダ内の何もない場所を Shift + 右クリック →
-「PowerShell ウィンドウをここで開く」でも同じです）
+本体フォルダの中にある **`start-windows.bat`** をダブルクリックします。
 
-**4. コマンドを実行する**
+必要なものの確認、初回セットアップ、起動、ブラウザで開くところまで
+自動で行います。初回は数分かかります。
 
-開いた黒い画面に次を貼り付けて Enter。初回は数分かかります。
+終了するときは、開いた黒い画面で `Ctrl + C` を押してください。
+
+（Mac / Linux の場合は `start-mac-linux.sh` を使ってください）
+
+#### コマンドで実行したい場合
+
+`package.json` があるフォルダでターミナルを開き、次を実行します。
+フォルダのアドレスバーに `powershell` と入力して Enter を押すと、
+その場所でPowerShellが開きます。
 
 ```powershell
 npm install
-```
-
-終わったら続けて次を実行します。
-
-```powershell
 npm run dev
 ```
 
-`Local: http://localhost:1420/` と表示されたら成功です。
-
-**5. ブラウザで開く**
-
-Chrome か Edge で <http://localhost:1420/> を開きます。
-
-終了するときは、黒い画面で `Ctrl + C` を押します。
-次回からは手順3・4の `npm run dev` だけでかまいません（`npm install` は初回のみ）。
+`Local: http://localhost:1420/` と表示されたら、Chrome か Edge で
+<http://localhost:1420/> を開きます。
+2回目以降は `npm run dev` だけで構いません。
 
 #### うまくいかないとき
 
-| 表示されたもの | 対処 |
+| 表示されたもの | 原因と対処 |
 | --- | --- |
-| `npm : 用語 ... 認識されません` | Node.jsが未インストールか、再起動していません |
-| `EACCES` / `permission denied` | フォルダをデスクトップなど権限のある場所へ移してください |
+| `Missing script: "dev"` | フォルダが違います。二重になったフォルダの**内側**（`package.json` があるほう）に移動してください。`dir` と入力すると今いる場所の中身が見えます |
+| `npm : 用語 ... 認識されません` | Node.jsが未インストールか、インストール後に再起動していません |
 | `Port 1420 is in use` | 既に起動しています。ブラウザで開くだけでOKです |
 | 真っ白な画面 | Chrome か Edge で開いてください（Firefoxは書き出し非対応） |
-
-### Web版でできること
-
-| 機能 | 状態 |
-| --- | --- |
-| 素材の取り込み（ドラッグ＆ドロップ） | ○ |
-| サムネイル・波形の生成 | ○ |
-| タイムライン編集すべて | ○ |
-| 色調整・エフェクト・マスク・キーフレーム | ○ |
-| 無音検出・シーン検出 | ○ |
-| トラッキング・マルチカム同期 | ○ |
-| 書き出し | ○（WebCodecs） |
-| 文字起こし・自然言語指示 | ○（APIキーの設定が必要） |
-| ローカル音声認識エンジン | ×（デスクトップ版のみ） |
-| プロキシ生成 | ×（原本を直接再生します） |
-
-### Web版の注意点
-
-- **書き出しにはWebCodecs対応ブラウザが必要**です。Chrome、Edge、
-  Safari 16.4以降で動作します。Firefoxは未対応です。
-- **出力形式はブラウザによって変わります**。H.264が使えるブラウザでは
-  MP4、使えない場合はWebM（VP9 / Opus）になります。書き出し画面に
-  どちらになるか表示されます。
-- **素材はブラウザ内（IndexedDB）に保存**されます。同じブラウザなら
-  再読み込みしても消えませんが、閲覧データを消すと失われます。
-- 長い動画の書き出しには時間がかかります。進捗はステータスバーに出ます。
 
 ---
 
